@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-wechat"
+version = "0.1.0"
+description = "WeChat group & official-account knowledge digest — local SQLCipher decrypt + LLM summarize, agent-friendly (Windows/macOS/Linux)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "wechat-cli @ git+https://github.com/maomao3334/wechat-cli-plus.git",
+    "pycryptodome>=3.19,<4",
+    "zstandard>=0.22,<1",
+]
+
+[project.scripts]
+hermes = "hermes.cli:main"

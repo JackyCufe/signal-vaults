@@ -1,0 +1,329 @@
+# -*- coding: utf-8 -*-
+"""知识日报 — 分片 LLM 提炼 + 合并去重 + 渲染 + Discord 推送"""
+import os
+import re
+import json
+import time
+import urllib.request
+
+from . import config, collector, llm
+
+NL = chr(10)
+PARTS_DIR = os.path.join(config.WORK_DIR, "parts")
+os.makedirs(PARTS_DIR, exist_ok=True)
+
+PROMPT_HEAD = ("你是AI前沿知识筛选员。以下是微信群「{chat}」最近{days}天聊天记录的第{part}部分(共{n}条)。"
+               "【筛选铁律】只提取知识型内容: AI/LLM/Agent新技术、工具、模型发布、论文、开源项目、"
+               "技术教程、实践经验、行业数据、有信息量的事件。八卦/斗嘴/日常闲聊/梗图/情绪表达一律忽略。"
+               "同时提取生僻术语(jargon): 群里出现的外行看不懂的词——硬件型号/芯片/GPU/网络协议/金融量化/学术黑话等, 用大白话各1-2句科普。没有就空数组。"
+               "只输出JSON(不要markdown):")
+PROMPT_EXAMPLE = '{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"}],"jargon":[{"term":"生僻术语","explain":"1-2句大白话科普: 这是什么/为什么被提到","context":"群里谁在什么场景提到"}],"resources":[{"title":"名称","url":"链接","note":"一句话说明"}]}'
+PROMPT_EMPTY = '{"knowledge":[],"resources":[]}'
+
+
+def _chat_key(u):
+    return re.sub(r"[^A-Za-z0-9]", "_", u)[:40]
+
+
+def _thumbs_with_context(msgs, max_imgs=8, ctx_chars=120):
+    out = []
+    for i, m in enumerate(msgs):
+        if not (m.get("thumb") and os.path.exists(m["thumb"])):
+            continue
+        when = time.strftime("%H:%M", time.localtime(m["ts"]))
+        who = m["sender"] or "群友"
+        ctx = []
+        for j in range(max(0, i - 3), min(len(msgs), i + 3)):
+            if j == i:
+                continue
+            t = msgs[j].get("display", "").strip()
+            if t and not t.startswith("["):
+                ctx.append(t[:60])
+        desc = "{} {}分享 | 前后文: {}".format(when, who, " / ".join(ctx[:2]) or "(无讨论)")
+        out.append({"path": m["thumb"], "desc": desc[:ctx_chars + 40]})
+        if len(out) >= max_imgs:
+            break
+    return out
+
+
+def summarize_chunks(username, msgs, days, lookback_label="1"):
+    """按 ≤1800 字符分片调 LLM (避开网关非流式超时), 带缓存, 失败不缓存"""
+    parts_out, slices = [], []
+    cur, cur_len = [], 0
+    for m in msgs:
+        line_len = min(300, len(m.get("display", ""))) + 40
+        if cur and cur_len + line_len > 1800:
+            slices.append(cur)
+            cur, cur_len = [], 0
+        cur.append(m)
+        cur_len += line_len
+    if cur:
+        slices.append(cur)
+    nchunks = len(slices)
+    for idx in range(nchunks):
+        ch = slices[idx]
+        pf = os.path.join(PARTS_DIR, "{}_know_d{}_p{}.json".format(
+            _chat_key(username), lookback_label, idx))
+        if os.path.exists(pf):
+            parts_out.append(json.load(open(pf, encoding="utf-8")))
+            print("  part{}/{} (cached)".format(idx + 1, nchunks), flush=True)
+            continue
+        text = format_msgs_for_llm(ch, limit_chars=2000)
+        head = PROMPT_HEAD.format(chat=collector.group_name(username) or username,
+                                  days=days, part=idx + 1, n=len(ch))
+        prompt = head + NL + PROMPT_EXAMPLE + NL + "没有知识内容就输出 " + PROMPT_EMPTY
+        data, ok = None, False
+        for attempt in range(3):
+            try:
+                raw = llm.chat(text, system=prompt)
+                m = re.search(r"\{.*\}", raw, re.S)
+                data = json.loads(m.group(0))
+                ok = True
+                break
+            except Exception as e:
+                print("  part{} retry{}: {}".format(idx + 1, attempt + 1, str(e)[:60]), flush=True)
+                time.sleep(2 * attempt + 1)
+        if not ok:
+            print("  part{} FAILED -> 不缓存, 下次重试".format(idx + 1), flush=True)
+            parts_out.append({"knowledge": [], "resources": [], "jargon": [], "_failed": True})
+            continue
+        json.dump(data, open(pf, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        parts_out.append(data)
+        print("  part{}/{} done".format(idx + 1, nchunks), flush=True)
+    return parts_out
+
+
+def format_msgs_for_llm(msgs, limit_chars=45000):
+    lines, budget = [], limit_chars
+    for m in msgs:
+        line = "[{}] {}: {}".format(
+            time.strftime("%m-%d %H:%M", time.localtime(m["ts"])), m["sender"], m["display"])
+        if len(line) > 300:
+            line = line[:300] + "..."
+        if budget - len(line) < 0:
+            break
+        budget -= len(line)
+        lines.append(line)
+    return NL.join(lines)
+
+
+def merge_knowledge(username, parts, days, total):
+    know, res, jar = [], [], []
+    for p in parts:
+        know += p.get("knowledge", [])
+        res += p.get("resources", [])
+        jar += p.get("jargon", [])
+    seen, kd = set(), []
+    for k in know:
+        key = (k.get("topic", "") or "")[:30]
+        if key and key not in seen:
+            seen.add(key)
+            kd.append(k)
+    seen, rd = set(), []
+    for r in res:
+        key = (r.get("title", "") or r.get("url", "") or "")[:40]
+        if key and key not in seen:
+            seen.add(key)
+            rd.append(r)
+    seen, jd = set(), []
+    for j in jar:
+        key = (j.get("term", "") or "")[:30]
+        if key and key not in seen:
+            seen.add(key)
+            jd.append(j)
+    hot = kd
+    try:
+        brief = json.dumps(kd[:40], ensure_ascii=False)[:16000]
+        raw = llm.chat(
+            "以下是群内知识条目。合并同类项按重要性排序, 输出Top3-8 JSON: "
+            + '{"hot":[{"topic":"...","detail":"2-3句: 是什么/为什么重要/怎么用","who":"..."}]}',
+            system=brief)
+        m = re.search(r"\{.*\}", raw, re.S)
+        hot = json.loads(m.group(0)).get("hot", kd[:8])
+    except Exception:
+        pass
+    return {"hot": hot, "resources": rd, "jargon": jd[:6],
+            "meta": {"chat": username, "days": days, "total": total}}
+
+
+def render_text(digest):
+    m = digest["meta"]
+    gname = collector.group_name(m["raw_chat"]) if m.get("raw_chat") else m["chat"]
+    lines = ["群聊: " + gname + (" (" + m["days_label"] + ")" if m.get("days_label") else ""),
+             "共计 {} 条消息 (近{}天) | 生成 {}".format(
+                 m["total"], m["days"], time.strftime("%Y-%m-%d %H:%M")),
+             "", "## AI 前沿知识精选"]
+    for i, k in enumerate(digest["hot"], 1):
+        lines.append("{}. **{}**  — {}".format(i, k.get("topic"), k.get("who", "")))
+        lines.append("   " + str(k.get("detail", "")))
+    if digest.get("jargon"):
+        lines.append("")
+        lines.append("## 术语科普 (生僻词)")
+        for j in digest["jargon"]:
+            lines.append("- **{}**: {} ({})".format(
+                j.get("term", ""), j.get("explain", ""), j.get("context", "")))
+    lines.append("")
+    lines.append("## 资源/链接")
+    for r in digest["resources"]:
+        if isinstance(r, dict):
+            lines.append("- {} {}".format(r.get("title", ""), r.get("url", "")))
+        else:
+            lines.append("- " + str(r))
+    return NL.join(lines)
+
+
+def push_discord(digest, txt_path=None):
+    if not config.discord_ready():
+        print("  (未配置 DISCORD_BOT_TOKEN/DISCORD_CHANNEL_ID, 跳过推送)")
+        return 0
+    token, ch = config.DISCORD_BOT_TOKEN, config.DISCORD_CHANNEL_ID
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler(
+        {"https": config.PUSH_PROXY} if config.PUSH_PROXY else {}))
+    m = digest["meta"]
+    gname = collector.group_name(m["raw_chat"]) if m.get("raw_chat") else m["chat"]
+
+    embed_desc = ""
+    for i, k in enumerate(digest["hot"][:6], 1):
+        embed_desc += "**{}. {}** — {}{}{}{}{}".format(
+            i, k.get("topic"), k.get("who", ""), NL, k.get("detail", ""), NL, NL)
+    embed_desc = embed_desc[:3900] or "(无)"
+
+    boundary = "----smd" + str(int(time.time()))
+    attachments, blobs = [], []
+    idx = 0
+    for t in digest.get("thumbs", []):
+        p = t["path"] if isinstance(t, dict) else t
+        desc = t.get("desc", "群内图片") if isinstance(t, dict) else "群内图片"
+        if os.path.exists(p):
+            attachments.append({"id": idx, "filename": os.path.basename(p),
+                                "description": desc})
+            blobs.append((os.path.basename(p), open(p, "rb").read(), "image/jpeg"))
+            idx += 1
+    for p in digest.get("files", []):
+        if os.path.exists(p):
+            attachments.append({"id": idx, "filename": os.path.basename(p)})
+            blobs.append((os.path.basename(p), open(p, "rb").read(),
+                          "application/octet-stream"))
+            idx += 1
+
+    CRLF = chr(13) + chr(10)
+    payload = {
+        "content": "**{}**{} — 共计 **{}** 条消息".format(
+            gname, " ({})".format(m["days_label"]) if m.get("days_label") else "",
+            m["total"]),
+        "embeds": [{"title": "AI 前沿知识精选",
+                    "description": embed_desc,
+                    "color": 0x5865F2,
+                    "footer": {"text": "筛选自 {} 条消息 | hermes-wechat".format(m["total"])}}],
+        "attachments": attachments,
+    }
+    if digest.get("jargon"):
+        jdesc = ""
+        for j in digest["jargon"][:5]:
+            jdesc += "**{}**{}{}{}{}".format(j.get("term", ""), NL, j.get("explain", ""), NL, NL)
+        payload["embeds"].append({
+            "title": "术语科普 (生僻词)",
+            "description": jdesc[:3900] or "(无)",
+            "color": 0xFEE75C})
+    body = ("--" + boundary + CRLF +
+            'Content-Disposition: form-data; name="payload_json"' + CRLF + CRLF +
+            json.dumps(payload, ensure_ascii=False) + CRLF).encode("utf-8")
+    for a in attachments:
+        fname = a["filename"]
+        blob, ctype = next((b, c) for n, b, c in blobs if n == fname)
+        body += ("--" + boundary + CRLF +
+                 'Content-Disposition: form-data; name="files[{}]"; filename="{}"'.format(
+                     a["id"], fname) + CRLF +
+                 "Content-Type: " + ctype + CRLF + CRLF).encode("utf-8")
+        body += blob + CRLF.encode()
+    body += ("--" + boundary + "--" + CRLF).encode()
+
+    req = urllib.request.Request(
+        "https://discord.com/api/v10/channels/{}/messages".format(ch),
+        data=body,
+        headers={"Authorization": "Bot " + token,
+                 "Content-Type": "multipart/form-data; boundary=" + boundary,
+                 "User-Agent": "DiscordBot (https://github.com/hermes-wechat, 1.0)"},
+        method="POST")
+    r = opener.open(req, timeout=120)
+    return r.status
+
+
+def run_groups(group_keywords, days=1):
+    results = []
+    for kw in group_keywords:
+        llm.LLM_USAGE.clear()
+        print("=== {} ===".format(kw), flush=True)
+        try:
+            username, msgs = collector.fetch_messages(kw, days)
+            if not msgs:
+                print("  无消息, 跳过", flush=True)
+                continue
+            thumbs = _thumbs_with_context(msgs)
+            files = [f for f in collector.find_files(username, days)
+                     if os.path.getsize(f) < 8 * 1024 * 1024]
+            parts = summarize_chunks(username, msgs, days, lookback_label=str(days))
+            d = merge_knowledge(username, parts, days, len(msgs))
+            d["meta"]["raw_chat"] = username
+            d["meta"]["days_label"] = ""
+            d["thumbs"] = thumbs[:8]
+            d["files"] = files[:5]
+            txt = render_text(d)
+            txt_path = os.path.join(config.WORK_DIR,
+                                    "know_{}.txt".format(_chat_key(username)))
+            open(txt_path, "w", encoding="utf-8").write(txt)
+            st = push_discord(d, txt_path)
+            u_in = sum(u["in"] for u in llm.LLM_USAGE)
+            u_out = sum(u["out"] for u in llm.LLM_USAGE)
+            print("  -> Discord HTTP {} ({}条, 知识{}条, 术语{}条) [tokens in={} out={}]".format(
+                st, d["meta"]["total"], len(d["hot"]), len(d.get("jargon", [])),
+                u_in, u_out), flush=True)
+            results.append((kw, st))
+        except Exception as ex:
+            print("  失败: {}".format(ex), flush=True)
+            results.append((kw, str(ex)))
+    return results
+
+
+def run_mp(days=3, ghs=None):
+    """公众号文章日报"""
+    ghs = ghs or {}
+    print("=== 公众号文章采集 ===", flush=True)
+    arts = collector.fetch_articles(days, ghs)
+    for name, lst in arts.items():
+        print("  {}: {} 篇 (近{}天)".format(name, len(lst), days), flush=True)
+    all_arts = [a for lst in arts.values() for a in lst]
+    all_arts.sort(key=lambda x: -x["ts"])
+    if not all_arts:
+        print("  无文章", flush=True)
+        return
+    text = NL.join("[{}] {}: {} — {}".format(
+        a["time"], a["gh"], a["title"], (a.get("digest") or "")[:120]) for a in all_arts)
+    head = ("以下是最近{}天关注的AI类公众号文章推送列表。默认全部保留, "
+            "给每篇写1-2句推荐语(这篇文章讲什么/值得读的点); "
+            "纯生活游记等与AI/科技完全无关的才标记skip。只输出JSON(不要markdown):").format(days)
+    example = '{"articles":[{"title":"原文标题(一字不差)","note":"1-2句推荐语","skip":false}]}'
+    notes = {}
+    try:
+        raw = llm.chat(text[:16000], system=head + NL + example)
+        m = re.search(r"\{.*\}", raw, re.S)
+        for it in json.loads(m.group(0)).get("articles", []):
+            notes[it.get("title", "")] = (it.get("note", ""), bool(it.get("skip")))
+    except Exception as e:
+        print("  LLM推荐语失败, 退回原文摘要: {}".format(str(e)[:60]), flush=True)
+    hot, res = [], []
+    for a in all_arts:
+        note, skip = notes.get(a["title"], (a.get("digest") or "", False))
+        if skip:
+            continue
+        d = note or a.get("digest") or ""
+        hot.append({"topic": a["title"], "detail": d, "who": a["gh"]})
+        res.append({"title": a["title"], "url": a["url"], "note": d})
+    digest = {"hot": hot, "resources": res, "jargon": [],
+              "meta": {"chat": "公众号文章", "days": days, "total": len(all_arts)},
+              "thumbs": [], "files": []}
+    txt = render_text(digest)
+    txt_path = os.path.join(config.WORK_DIR, "know_gongzhonghao.txt")
+    open(txt_path, "w", encoding="utf-8").write(txt)
+    st = push_discord(digest, txt_path)
+    print("-> Discord HTTP {} ({}篇, 精选{}条)".format(st, len(all_arts), len(hot)), flush=True)
