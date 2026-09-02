@@ -7,3 +7,11 @@ decrypted2/
 .env
 all_keys.json
 config.local.json
+memdump*
+magic_dumps/
+keys.json
+*.png
+hook*.log
+legacy/
+agentic_lab_1_48h.txt
+digest_run.log
