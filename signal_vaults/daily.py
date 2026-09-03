@@ -287,7 +287,7 @@ def push_discord(digest, txt_path=None):
         data=body,
         headers={"Authorization": "Bot " + token,
                  "Content-Type": "multipart/form-data; boundary=" + boundary,
-                 "User-Agent": "DiscordBot (https://github.com/hermes-wechat, 1.0)"},
+                 "User-Agent": "DiscordBot (https://github.com/JackyCufe/signal-vaults, 1.0)"},
         method="POST")
     r = opener.open(req, timeout=120)
     return r.status

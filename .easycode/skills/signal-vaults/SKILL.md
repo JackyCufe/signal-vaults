@@ -1,22 +1,22 @@
 ---
 name: signal-vaults
-description: 微信群/公众号 AI 知识日报生成：本仓库（signal-vaults）的 hermes CLI 从本地解密微信数据库提取消息，LLM 提炼知识，输出 Markdown 日报。当用户要求生成微信日报、群聊知识总结、运行 hermes 命令时使用。
+description: 微信群/公众号 AI 知识日报生成：本仓库（signal-vaults）的 signal-vaults CLI 从本地解密微信数据库提取消息，LLM 提炼知识，输出 Markdown 日报。当用户要求生成微信日报、群聊知识总结、运行 signal-vaults 命令时使用。
 ---
 
-# Signal Vaults — 微信知识日报 Skill（hermes CLI）
+# Signal Vaults — 微信知识日报 Skill（signal-vaults CLI）
 
 ## 目标
-通过 `hermes` CLI（本仓库 `hermes/` Python 包，`pip install .` 安装）生成本机微信群聊/公众号的 AI 知识日报。
+通过 `signal-vaults` CLI（本仓库 `signal_vaults/` Python 包，`pip install .` 安装）生成本机微信群聊/公众号的 AI 知识日报。
 
 ## 何时使用
 - 用户要求"生成微信日报 / 总结群聊知识 / 公众号文章摘要"
-- 用户提到 `hermes daily` / `hermes mp` / `hermes groups` / `hermes doctor`
+- 用户提到 `signal-vaults daily` / `signal-vaults mp` / `signal-vaults groups` / `signal-vaults doctor`
 
 ## 工作流
 
 ### 1. 环境自检
 ```bash
-hermes doctor
+signal-vaults doctor
 ```
 - 任何 `[!!]` 项按提示修复：
   - 缺数据目录 → 确认微信已在本机登录过，或设 `HERMES_DB_DIR` 指向 `.../db_storage`
@@ -25,14 +25,14 @@ hermes doctor
 
 ### 2. 选群
 ```bash
-hermes groups           # 列出全部群与会话
-hermes groups 关键词     # 模糊搜索群名
+signal-vaults groups           # 列出全部群与会话
+signal-vaults groups 关键词     # 模糊搜索群名
 ```
 
 ### 3. 生成日报
 ```bash
-hermes daily <天数> "<群名1>" "<群名2>"   # 群聊知识日报
-hermes mp <天数>                          # 公众号文章日报
+signal-vaults daily <天数> "<群名1>" "<群名2>"   # 群聊知识日报
+signal-vaults mp <天数>                          # 公众号文章日报
 ```
 - 输出：`work/know_*.txt`（Markdown）
 - 配置了 `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID` 则同时推送 Discord
@@ -58,4 +58,4 @@ hermes mp <天数>                          # 公众号文章日报
 | `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID` | | 可选，自动推送 |
 
 ## 解耦说明
-本 SKILL.md 只描述调用方式与安全约束；全部业务逻辑在 `hermes/` Python 包内（`pip install .`），不依赖 SKILL.md 内容运行。
+本 SKILL.md 只描述调用方式与安全约束；全部业务逻辑在 `signal_vaults/` Python 包内（`pip install .`），不依赖 SKILL.md 内容运行。

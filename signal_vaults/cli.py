@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Hermes WeChat 命令行入口
+"""Signal Vaults 命令行入口
 
 用法:
-  python -m hermes doctor                          # 环境自检 (数据目录/密钥/LLM/推送)
-  python -m hermes groups                          # 列出可搜索的群/会话
-  python -m hermes daily [days] [群关键词...]       # 群知识日报
-  python -m hermes mp [days]                       # 公众号文章日报
+  python -m signal_vaults doctor                    # 环境自检 (数据目录/密钥/LLM/推送)
+  python -m signal_vaults groups                    # 列出可搜索的群/会话
+  python -m signal_vaults daily [days] [群关键词...] # 群知识日报
+  python -m signal_vaults mp [days]                 # 公众号文章日报
 """
 import sys
 import os

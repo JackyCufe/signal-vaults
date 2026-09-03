@@ -2,8 +2,11 @@
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = ["signal_vaults"]
+
 [project]
-name = "hermes-wechat"
+name = "signal-vaults"
 version = "0.1.0"
 description = "WeChat group & official-account knowledge digest — local SQLCipher decrypt + LLM summarize, agent-friendly (Windows/macOS/Linux)"
 readme = "README.md"
@@ -16,4 +19,4 @@ dependencies = [
 ]
 
 [project.scripts]
-hermes = "hermes.cli:main"
+signal-vaults = "signal_vaults.cli:main"

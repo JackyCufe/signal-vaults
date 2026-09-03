@@ -12,10 +12,10 @@
 
 | 命令 | 功能 |
 |---|---|
-| `hermes doctor` | 环境自检：数据目录 / 密钥 / LLM / 推送配置 |
-| `hermes groups [关键词]` | 列出群与会话（供 Agent 选择目标群） |
-| `hermes daily [days] [群...]` | 群聊知识日报：分片 LLM 提炼 → 知识点 + 术语科普 + 资源链接，带缓存与重试 |
-| `hermes mp [days]` | 公众号文章日报：抓取推送 → LLM 写推荐语 → 输出 |
+| `signal-vaults doctor` | 环境自检：数据目录 / 密钥 / LLM / 推送配置 |
+| `signal-vaults groups [关键词]` | 列出群与会话（供 Agent 选择目标群） |
+| `signal-vaults daily [days] [群...]` | 群聊知识日报：分片 LLM 提炼 → 知识点 + 术语科普 + 资源链接，带缓存与重试 |
+| `signal-vaults mp [days]` | 公众号文章日报：抓取推送 → LLM 写推荐语 → 输出 |
 
 输出默认写到 `work/know_*.txt`；配置了 Discord 环境变量则同时推送（含图片附件与 embed 卡片）。
 
@@ -38,9 +38,9 @@ export LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 智谱示例
 export LLM_MODEL=glm-4-flash
 
 # 4) 自检 + 运行
-hermes doctor
-hermes daily 1 "Agentic" "Data Go"     # 群名支持模糊匹配，先 hermes groups 看列表
-hermes mp 3                            # 公众号日报
+signal-vaults doctor
+signal-vaults daily 1 "Agentic" "Data Go"     # 群名支持模糊匹配，先 signal-vaults groups 看列表
+signal-vaults mp 3                            # 公众号日报
 ```
 
 ## 环境变量
@@ -72,15 +72,15 @@ hermes mp 3                            # 公众号日报
 把下面这段直接发给 Codex / Claude Code 等 Agent，它就能从零跑通：
 
 ```text
-任务：用 hermes-wechat 生成本机微信群的知识日报。
+任务：用 signal-vaults 生成本机微信群的知识日报。
 
 步骤：
-1. 环境自检：运行 `hermes doctor`。任何 [!!] 项按提示修复：
+1. 环境自检：运行 `signal-vaults doctor`。任何 [!!] 项按提示修复：
    - 缺数据目录 → 确认微信已在本机登录过，或设 HERMES_DB_DIR 指向 db_storage
    - 缺密钥 → 运行 `wechat-cli init`（微信需登录状态；macOS/Linux 加 sudo）
    - 缺 LLM_API_KEY → 向用户索要，或读取本地 .env 文件
-2. 选群：运行 `hermes groups` 查看群列表（或 `hermes groups 关键词` 模糊搜索）。
-3. 生成日报：`hermes daily <天数> "<群名1>" "<群名2>"`；公众号用 `hermes mp <天数>`。
+2. 选群：运行 `signal-vaults groups` 查看群列表（或 `signal-vaults groups 关键词` 模糊搜索）。
+3. 生成日报：`signal-vaults daily <天数> "<群名1>" "<群名2>"`；公众号用 `signal-vaults mp <天数>`。
 4. 结果在 work/know_*.txt（Markdown），已配置 Discord 则同时推送。
 5. 故障处理：
    - LLM 超时 → 脚本自带 3 次重试；连续失败检查 LLM_BASE_URL/网络代理
@@ -92,7 +92,7 @@ hermes mp 3                            # 公众号日报
 ## 架构
 
 ```
-hermes/
+signal_vaults/
 ├── config.py     # 环境变量配置层（零硬编码、零敏感信息）
 ├── llm.py        # OpenAI 兼容 /chat/completions（标准库实现，无 SDK 依赖）
 ├── collector.py  # SQLCipher 解密(mtime增量) + 会话定位 + 消息/图片/文件/公众号提取
