@@ -254,7 +254,7 @@ def push_discord(digest, txt_path=None):
         "embeds": [{"title": "AI 前沿知识精选",
                     "description": embed_desc,
                     "color": 0x5865F2,
-                    "footer": {"text": "筛选自 {} 条消息 | hermes-wechat".format(m["total"])}}],
+                    "footer": {"text": "筛选自 {} 条消息".format(m["total"])}}],
         "attachments": attachments,
     }
     if digest.get("resources"):
@@ -369,11 +369,17 @@ def _subscribed_ghs(days):
     return found
 
 
+# 公众号抓取清单: 只抓这里的号 (显示名: gh_id); 想增删直接改这个 dict
+MP_LIST = {
+    "数字生命卡兹克": "gh_94dba26f8ca0",
+    "刘小排r": "gh_d56f73c13a02",
+}
+
+
 def run_mp(days=3, ghs=None):
-    """公众号文章日报 (仅订阅号; ghs: {显示名: gh_id}"""
+    """公众号文章日报 (仅抓取 MP_LIST 清单内的订阅号; ghs: {显示名: gh_id}"""
     if not ghs:
-        # _subscribed_ghs 返回 {gh_id: 显示名}, fetch_articles 需要 {显示名: gh_id}
-        ghs = {v: k for k, v in _subscribed_ghs(days).items()}
+        ghs = MP_LIST
     print("=== 公众号文章采集 === ({} 个公众号, 近{}天)".format(len(ghs), days), flush=True)
     arts = collector.fetch_articles(days, ghs)
     for name, lst in arts.items():
