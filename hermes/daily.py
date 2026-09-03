@@ -17,9 +17,10 @@ os.makedirs(PARTS_DIR, exist_ok=True)
 PROMPT_HEAD = ("你是AI前沿知识筛选员。以下是微信群「{chat}」最近{days}天聊天记录的第{part}部分(共{n}条)。"
                "【筛选铁律】只提取知识型内容: AI/LLM/Agent新技术、工具、模型发布、论文、开源项目、"
                "技术教程、实践经验、行业数据、有信息量的事件。八卦/斗嘴/日常闲聊/梗图/情绪表达一律忽略。"
-               "同时提取专业名词(jargon): 群里出现的外行看不懂的技术词汇——硬件型号/芯片/GPU/网络协议/金融量化/学术黑话等, 用大白话各1-2句解释。没有就空数组。"
+               "【链接铁律】resources 里的 url 字段只能逐字复制聊天记录中真实出现的链接; "
+               "群里没发过链接就输出空数组, 严禁自己补全/构造/推测任何 URL。"
                "只输出JSON(不要markdown):")
-PROMPT_EXAMPLE = '{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"}],"jargon":[{"term":"专业名词","explain":"1-2句大白话解释: 这是什么/为什么被提到","context":"群里谁在什么场景提到"}],"resources":[{"title":"名称","url":"链接","note":"一句话说明"}]}'
+PROMPT_EXAMPLE = '{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"}],"resources":[{"title":"名称","url":"聊天记录中的原始链接","note":"一句话说明"}]}'
 PROMPT_EMPTY = '{"knowledge":[],"resources":[]}'
 
 
@@ -138,12 +139,23 @@ def format_msgs_for_llm(msgs, limit_chars=45000):
     return NL.join(lines)
 
 
-def merge_knowledge(username, parts, days, total):
-    know, res, jar = [], [], []
+def merge_knowledge(username, parts, days, total, raw_msgs=None):
+    know, res = [], []
+    # 收集聊天记录中真实出现过的 URL (白名单校验用)
+    raw_urls = set()
+    for m in (raw_msgs or []):
+        u = m.get("url") or ""
+        if u:
+            # collector 里 url 存的是 xml 原文, 可能带 CDATA 后缀 "]]", 清理后入库
+            u = u.replace("]]", "").strip()
+            if u.startswith("http"):
+                raw_urls.add(u)
+        blob = m.get("display") or ""
+        for um in re.finditer(r"https?://[^\s\"'<>】]+", blob):
+            raw_urls.add(um.group(0))
     for p in parts:
         know += p.get("knowledge", [])
         res += p.get("resources", [])
-        jar += p.get("jargon", [])
     seen, kd = set(), []
     for k in know:
         key = (k.get("topic", "") or "")[:30]
@@ -155,13 +167,14 @@ def merge_knowledge(username, parts, days, total):
         key = (r.get("title", "") or r.get("url", "") or "")[:40]
         if key and key not in seen:
             seen.add(key)
+            # URL 白名单: 只保留聊天记录中真实出现过的; LLM 补编的一律丢弃 url (保留标题当纯文字)
+            if isinstance(r, dict) and r.get("url"):
+                u = r["url"].strip()
+                if not any(u == ru or u in ru or ru in u for ru in raw_urls):
+                    print("    [链接校验] 丢弃非聊天记录来源 URL: {}".format(u[:60]))
+                    r = dict(r)
+                    r.pop("url", None)
             rd.append(r)
-    seen, jd = set(), []
-    for j in jar:
-        key = (j.get("term", "") or "")[:30]
-        if key and key not in seen:
-            seen.add(key)
-            jd.append(j)
     hot = kd
     try:
         brief = json.dumps(kd[:40], ensure_ascii=False)[:16000]
@@ -172,7 +185,7 @@ def merge_knowledge(username, parts, days, total):
         hot = _parse_llm_json(raw).get("hot", kd[:8])
     except Exception:
         pass
-    return {"hot": hot, "resources": rd, "jargon": jd[:6],
+    return {"hot": hot, "resources": rd,
             "meta": {"chat": username, "days": days, "total": total}}
 
 
@@ -186,17 +199,14 @@ def render_text(digest):
     for i, k in enumerate(digest["hot"], 1):
         lines.append("{}. **{}**  — {}".format(i, k.get("topic"), k.get("who", "")))
         lines.append("   " + str(k.get("detail", "")))
-    if digest.get("jargon"):
-        lines.append("")
-        lines.append("## 知识名词解释")
-        for j in digest["jargon"]:
-            lines.append("- **{}**: {} ({})".format(
-                j.get("term", ""), j.get("explain", ""), j.get("context", "")))
     lines.append("")
     lines.append("## 资源/链接")
     for r in digest["resources"]:
         if isinstance(r, dict):
-            lines.append("- {} {}".format(r.get("title", ""), r.get("url", "")))
+            if r.get("url"):
+                lines.append("- {} {}".format(r.get("title", ""), r.get("url", "")))
+            else:
+                lines.append("- {}".format(r.get("title", "")))
         else:
             lines.append("- " + str(r))
     return NL.join(lines)
@@ -247,14 +257,6 @@ def push_discord(digest, txt_path=None):
                     "footer": {"text": "筛选自 {} 条消息 | hermes-wechat".format(m["total"])}}],
         "attachments": attachments,
     }
-    if digest.get("jargon"):
-        jdesc = ""
-        for j in digest["jargon"][:5]:
-            jdesc += "**{}**{}{}{}{}".format(j.get("term", ""), NL, j.get("explain", ""), NL, NL)
-        payload["embeds"].append({
-            "title": "知识名词解释",
-            "description": jdesc[:3900] or "(无)",
-            "color": 0xFEE75C})
     if digest.get("resources"):
         rdesc = ""
         for r in digest["resources"][:8]:
@@ -305,7 +307,7 @@ def run_groups(group_keywords, days=1):
             files = [f for f in collector.find_files(username, days)
                      if os.path.getsize(f) < 8 * 1024 * 1024]
             parts = summarize_chunks(username, msgs, days, lookback_label=str(days))
-            d = merge_knowledge(username, parts, days, len(msgs))
+            d = merge_knowledge(username, parts, days, len(msgs), raw_msgs=msgs)
             d["meta"]["raw_chat"] = username
             d["meta"]["days_label"] = ""
             d["thumbs"] = thumbs[:8]
@@ -317,8 +319,8 @@ def run_groups(group_keywords, days=1):
             st = push_discord(d, txt_path)
             u_in = sum(u["in"] for u in llm.LLM_USAGE)
             u_out = sum(u["out"] for u in llm.LLM_USAGE)
-            print("  -> Discord HTTP {} ({}条, 知识{}条, 术语{}条) [tokens in={} out={}]".format(
-                st, d["meta"]["total"], len(d["hot"]), len(d.get("jargon", [])),
+            print("  -> Discord HTTP {} ({}条, 知识{}条, 链接{}条) [tokens in={} out={}]".format(
+                st, d["meta"]["total"], len(d["hot"]), len(d.get("resources", [])),
                 u_in, u_out), flush=True)
             results.append((kw, st))
         except Exception as ex:
@@ -327,9 +329,23 @@ def run_groups(group_keywords, days=1):
     return results
 
 
-def _discover_ghs(days):
-    """自动发现近 days 天有推送的公众号: {gh_id: gh_id}"""
+def _subscribed_ghs(days):
+    """仅取【已订阅】公众号(靠 extra_buffer 品牌订阅位): {gh_id: 显示名}
+    订阅判定: contact 表 extra_buffer 第4字节=0x03/0x83 (微信支付/微信运动等必然订阅号均命中此模式)
+    """
     import hashlib as _hl
+    contact_db = os.path.join(config.DEC_DIR, "contact_contact.db")
+    names = {}
+    try:
+        con = sqlite3.connect(contact_db)
+        for username, nick in con.execute(
+                "SELECT username, nick_name FROM contact "
+                "WHERE username LIKE 'gh_%' AND delete_flag=0 "
+                "AND substr(extra_buffer,4,1) IN (X'03', X'83')"):
+            names[username] = nick or username
+        con.close()
+    except Exception:
+        pass
     found = {}
     since = time.time() - days * 86400
     for db in sorted(glob.glob(os.path.join(config.DEC_DIR, "message_biz_message_*.db"))):
@@ -340,13 +356,13 @@ def _discover_ghs(days):
             tabs = {r[0] for r in con.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
             for gh in ghs:
-                if gh in found:
+                if gh in found or gh not in names:
                     continue
                 t = "Msg_" + _hl.md5(gh.encode()).hexdigest()
                 if t in tabs and con.execute(
                         "SELECT 1 FROM {} WHERE create_time > ? LIMIT 1".format(t),
                         (since,)).fetchone():
-                    found[gh] = gh
+                    found[gh] = names.get(gh, gh)
             con.close()
         except Exception:
             pass
@@ -354,9 +370,10 @@ def _discover_ghs(days):
 
 
 def run_mp(days=3, ghs=None):
-    """公众号文章日报"""
+    """公众号文章日报 (仅订阅号; ghs: {显示名: gh_id}"""
     if not ghs:
-        ghs = _discover_ghs(days)
+        # _subscribed_ghs 返回 {gh_id: 显示名}, fetch_articles 需要 {显示名: gh_id}
+        ghs = {v: k for k, v in _subscribed_ghs(days).items()}
     print("=== 公众号文章采集 === ({} 个公众号, 近{}天)".format(len(ghs), days), flush=True)
     arts = collector.fetch_articles(days, ghs)
     for name, lst in arts.items():
@@ -385,7 +402,7 @@ def run_mp(days=3, ghs=None):
         if skip:
             continue
         d = note or a.get("digest") or ""
-        hot.append({"topic": a["title"], "detail": d, "who": a["gh"]})
+        hot.append({"topic": a["title"], "detail": d, "who": ""})
         res.append({"title": a["title"], "url": a["url"], "note": d})
     digest = {"hot": hot, "resources": res, "jargon": [],
               "meta": {"chat": "公众号文章", "days": days, "total": len(all_arts)},
