@@ -35,6 +35,7 @@ def main(argv=None):
     cmd = argv[0] if argv else "doctor"
 
     if cmd == "doctor":
+        from . import llm
         _print_env()
         print()
         try:
@@ -53,8 +54,13 @@ def main(argv=None):
         else:
             print("[!!] 密钥文件不存在: {} — 先运行 wechat-cli init".format(kf))
             return 1
-        # coding agent 模式: LLM 调用由外部 agent 完成, 不强求本地 API key
-        if config.LLM_API_KEY:
+        if config.LLM_BACKEND == "codex" and not llm.codex_available():
+            print("[!!] Codex CLI 未找到: 请安装 Codex CLI 或设置 CODEX_BIN")
+            return 1
+        selected_backend = llm.backend()
+        if selected_backend == "codex":
+            print("[OK] LLM: Codex exec 自动化 (使用本机 Codex 登录态, 不需要 LLM_API_KEY)")
+        elif config.LLM_API_KEY:
             print("[OK] LLM: {} ({}) key已配置".format(
                 config.LLM_MODEL, config.LLM_BASE_URL))
         else:

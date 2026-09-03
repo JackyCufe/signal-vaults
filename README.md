@@ -32,7 +32,11 @@ wechat-cli init
 # 2) 安装本工具
 pip install .
 
-# 3) 配置 LLM（任何 OpenAI 兼容端点）
+# 3) 选择 LLM 后端（二选一）
+# A) 使用本机 Codex 登录态（推荐：已运行 codex login）
+LLM_BACKEND=codex   # 写入项目目录 .env
+
+# B) 使用任何 OpenAI 兼容端点
 export LLM_API_KEY=sk-xxx
 export LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 智谱示例
 export LLM_MODEL=glm-4-flash
@@ -47,15 +51,25 @@ signal-vaults mp 3                            # 公众号日报
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `LLM_API_KEY` | ✅ | OpenAI 兼容 API Key |
+| `LLM_API_KEY` | | OpenAI 兼容 API Key；使用 Codex 后端时不需要 |
 | `LLM_BASE_URL` | | 默认智谱 `https://open.bigmodel.cn/api/paas/v4`；DeepSeek: `https://api.deepseek.com/v1` |
 | `LLM_MODEL` | | 默认 `glm-4-flash` |
 | `LLM_PROXY` | | 可选代理 `http://127.0.0.1:7897` |
+| `LLM_BACKEND` | | `auto`（默认）、`api` 或 `codex`；无 API key 时 `auto` 自动使用 Codex CLI |
+| `CODEX_BIN` / `CODEX_MODEL` | | 可选，指定 Codex CLI 路径/模型 |
+| `CODEX_PROXY` | | 可选，Codex 网络代理；默认复用 `HTTPS_PROXY`/`HTTP_PROXY`/`PUSH_PROXY` |
 | `HERMES_DB_DIR` | | 微信 `db_storage` 目录（默认自动检测） |
 | `HERMES_KEYS_FILE` | | 密钥文件（默认 `~/.wechat-cli/all_keys.json`） |
 | `HERMES_WORK_DIR` | | 工作目录（默认 `./work`） |
 | `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID` | | 配置后自动推送 Discord |
 | `PUSH_PROXY` | | Discord 推送代理（默认跟随 `LLM_PROXY`） |
+
+项目目录下的 `.env` 会在启动时自动读取；已有的系统环境变量优先级更高，不会被 `.env` 覆盖。Discord 配置模板见 `.env`，填写 `DISCORD_BOT_TOKEN`、`DISCORD_CHANNEL_ID` 后运行 `signal-vaults doctor` 确认“Discord 推送 = 已配置”。
+首次配置可先复制 `.env.example` 为 `.env`，再填写需要的字段；真实 `.env` 已被 `.gitignore` 排除。
+
+如果本机已经完成 `codex login`，可将 `LLM_BACKEND=codex` 写入 `.env`，让摘要通过 Codex CLI 的非交互 `codex exec` 完成，不需要 `LLM_API_KEY`。`auto` 模式会在没有 API key 且检测到 Codex CLI 时自动选择该后端。Codex 调用使用临时空工作目录、只读沙箱和不持久化会话；聊天内容仍会发送给当前 Codex 服务进行处理。
+
+在无浏览器的受信任自动化环境中，也可以由外部密钥管理器注入 `CODEX_ACCESS_TOKEN`；不要把访问令牌写入源代码或提交到 Git。
 
 ## 平台兼容性
 
