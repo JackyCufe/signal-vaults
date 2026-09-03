@@ -53,9 +53,12 @@ def main(argv=None):
         else:
             print("[!!] 密钥文件不存在: {} — 先运行 wechat-cli init".format(kf))
             return 1
-        print("[OK] LLM: {} ({}) {}".format(
-            config.LLM_MODEL, config.LLM_BASE_URL,
-            "key已配置" if config.LLM_API_KEY else "缺 LLM_API_KEY"))
+        # coding agent 模式: LLM 调用由外部 agent 完成, 不强求本地 API key
+        if config.LLM_API_KEY:
+            print("[OK] LLM: {} ({}) key已配置".format(
+                config.LLM_MODEL, config.LLM_BASE_URL))
+        else:
+            print("[OK] LLM: 由外部 coding agent 调用 (未配置本地 key, 可选)")
         return 0
 
     if cmd == "groups":
