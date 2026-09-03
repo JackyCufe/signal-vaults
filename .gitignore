@@ -1,17 +1,28 @@
+# --- Python ---
 __pycache__/
 *.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+
+# --- 敏感数据（绝不入库）---
+all_keys.json
+keys.json
+config.local.json
+.env
 work/
 decrypted/
 decrypted2/
 *.log
-.env
-all_keys.json
-config.local.json
+
+# --- 微信逆向 / 开发期产物 ---
+legacy/
 memdump*
 magic_dumps/
-keys.json
 *.png
-hook*.log
-legacy/
 agentic_lab_1_48h.txt
-digest_run.log
+hermes-agent/
+
+# --- Easy Code 本地缓存 ---
+.easycode/clipboard/
