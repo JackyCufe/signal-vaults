@@ -4,6 +4,8 @@ import os
 import re
 import json
 import time
+import glob
+import sqlite3
 import urllib.request
 
 from . import config, collector, llm
@@ -15,9 +17,9 @@ os.makedirs(PARTS_DIR, exist_ok=True)
 PROMPT_HEAD = ("你是AI前沿知识筛选员。以下是微信群「{chat}」最近{days}天聊天记录的第{part}部分(共{n}条)。"
                "【筛选铁律】只提取知识型内容: AI/LLM/Agent新技术、工具、模型发布、论文、开源项目、"
                "技术教程、实践经验、行业数据、有信息量的事件。八卦/斗嘴/日常闲聊/梗图/情绪表达一律忽略。"
-               "同时提取生僻术语(jargon): 群里出现的外行看不懂的词——硬件型号/芯片/GPU/网络协议/金融量化/学术黑话等, 用大白话各1-2句科普。没有就空数组。"
+               "同时提取专业名词(jargon): 群里出现的外行看不懂的技术词汇——硬件型号/芯片/GPU/网络协议/金融量化/学术黑话等, 用大白话各1-2句解释。没有就空数组。"
                "只输出JSON(不要markdown):")
-PROMPT_EXAMPLE = '{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"}],"jargon":[{"term":"生僻术语","explain":"1-2句大白话科普: 这是什么/为什么被提到","context":"群里谁在什么场景提到"}],"resources":[{"title":"名称","url":"链接","note":"一句话说明"}]}'
+PROMPT_EXAMPLE = '{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"}],"jargon":[{"term":"专业名词","explain":"1-2句大白话解释: 这是什么/为什么被提到","context":"群里谁在什么场景提到"}],"resources":[{"title":"名称","url":"链接","note":"一句话说明"}]}'
 PROMPT_EMPTY = '{"knowledge":[],"resources":[]}'
 
 
@@ -44,6 +46,36 @@ def _thumbs_with_context(msgs, max_imgs=8, ctx_chars=120):
         if len(out) >= max_imgs:
             break
     return out
+
+
+def _parse_llm_json(raw):
+    """解析 LLM 输出的 JSON; 输出被截断时自动补齐 ']} 收尾, 尽量抢救已生成的条目"""
+    m = re.search(r"\{.*\}", raw, re.S)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            pass
+    # 截断的 JSON: 丢弃最后一个不完整对象后补 ']}' 再试
+    m2 = re.search(r"\{.*", raw, re.S)
+    if m2:
+        s = m2.group(0).rstrip()
+        # 从后往前找最后一个完整对象 "}," 或 "}" 边界
+        last = s.rfind("},")
+        if last > 0:
+            s = s[:last + 1] + "]}"
+            try:
+                return json.loads(s)
+            except Exception:
+                pass
+        # 整个就是单个不完整对象: 补引号/括号尝试
+        s2 = s.rstrip(",")
+        for tail in ("\"}", "\"}]}", "}", "]}", "\""):
+            try:
+                return json.loads(s2 + tail)
+            except Exception:
+                continue
+    raise ValueError("无法解析 LLM JSON: " + repr(raw[:80]))
 
 
 def summarize_chunks(username, msgs, days, lookback_label="1"):
@@ -76,8 +108,7 @@ def summarize_chunks(username, msgs, days, lookback_label="1"):
         for attempt in range(3):
             try:
                 raw = llm.chat(text, system=prompt)
-                m = re.search(r"\{.*\}", raw, re.S)
-                data = json.loads(m.group(0))
+                data = _parse_llm_json(raw)
                 ok = True
                 break
             except Exception as e:
@@ -138,8 +169,7 @@ def merge_knowledge(username, parts, days, total):
             "以下是群内知识条目。合并同类项按重要性排序, 输出Top3-8 JSON: "
             + '{"hot":[{"topic":"...","detail":"2-3句: 是什么/为什么重要/怎么用","who":"..."}]}',
             system=brief)
-        m = re.search(r"\{.*\}", raw, re.S)
-        hot = json.loads(m.group(0)).get("hot", kd[:8])
+        hot = _parse_llm_json(raw).get("hot", kd[:8])
     except Exception:
         pass
     return {"hot": hot, "resources": rd, "jargon": jd[:6],
@@ -158,7 +188,7 @@ def render_text(digest):
         lines.append("   " + str(k.get("detail", "")))
     if digest.get("jargon"):
         lines.append("")
-        lines.append("## 术语科普 (生僻词)")
+        lines.append("## 知识名词解释")
         for j in digest["jargon"]:
             lines.append("- **{}**: {} ({})".format(
                 j.get("term", ""), j.get("explain", ""), j.get("context", "")))
@@ -222,9 +252,21 @@ def push_discord(digest, txt_path=None):
         for j in digest["jargon"][:5]:
             jdesc += "**{}**{}{}{}{}".format(j.get("term", ""), NL, j.get("explain", ""), NL, NL)
         payload["embeds"].append({
-            "title": "术语科普 (生僻词)",
+            "title": "知识名词解释",
             "description": jdesc[:3900] or "(无)",
             "color": 0xFEE75C})
+    if digest.get("resources"):
+        rdesc = ""
+        for r in digest["resources"][:8]:
+            if isinstance(r, dict) and r.get("url"):
+                title = (r.get("title") or r.get("url"))[:80]
+                rdesc += "[{}]({}){}{}{}".format(
+                    title, r["url"], NL, (r.get("note") or "") + NL if r.get("note") else "", NL)
+        if rdesc:
+            payload["embeds"].append({
+                "title": "资源/链接",
+                "description": rdesc[:3900],
+                "color": 0x57F287})
     body = ("--" + boundary + CRLF +
             'Content-Disposition: form-data; name="payload_json"' + CRLF + CRLF +
             json.dumps(payload, ensure_ascii=False) + CRLF).encode("utf-8")
@@ -259,7 +301,7 @@ def run_groups(group_keywords, days=1):
             if not msgs:
                 print("  无消息, 跳过", flush=True)
                 continue
-            thumbs = _thumbs_with_context(msgs)
+            thumbs = []  # 群聊图片暂不推送, 确认图片有用后再启用 _thumbs_with_context
             files = [f for f in collector.find_files(username, days)
                      if os.path.getsize(f) < 8 * 1024 * 1024]
             parts = summarize_chunks(username, msgs, days, lookback_label=str(days))
@@ -285,10 +327,37 @@ def run_groups(group_keywords, days=1):
     return results
 
 
+def _discover_ghs(days):
+    """自动发现近 days 天有推送的公众号: {gh_id: gh_id}"""
+    import hashlib as _hl
+    found = {}
+    since = time.time() - days * 86400
+    for db in sorted(glob.glob(os.path.join(config.DEC_DIR, "message_biz_message_*.db"))):
+        try:
+            con = sqlite3.connect(db)
+            ghs = [r[0] for r in con.execute(
+                "SELECT user_name FROM Name2Id WHERE user_name LIKE 'gh_%'")]
+            tabs = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            for gh in ghs:
+                if gh in found:
+                    continue
+                t = "Msg_" + _hl.md5(gh.encode()).hexdigest()
+                if t in tabs and con.execute(
+                        "SELECT 1 FROM {} WHERE create_time > ? LIMIT 1".format(t),
+                        (since,)).fetchone():
+                    found[gh] = gh
+            con.close()
+        except Exception:
+            pass
+    return found
+
+
 def run_mp(days=3, ghs=None):
     """公众号文章日报"""
-    ghs = ghs or {}
-    print("=== 公众号文章采集 ===", flush=True)
+    if not ghs:
+        ghs = _discover_ghs(days)
+    print("=== 公众号文章采集 === ({} 个公众号, 近{}天)".format(len(ghs), days), flush=True)
     arts = collector.fetch_articles(days, ghs)
     for name, lst in arts.items():
         print("  {}: {} 篇 (近{}天)".format(name, len(lst), days), flush=True)
@@ -306,8 +375,7 @@ def run_mp(days=3, ghs=None):
     notes = {}
     try:
         raw = llm.chat(text[:16000], system=head + NL + example)
-        m = re.search(r"\{.*\}", raw, re.S)
-        for it in json.loads(m.group(0)).get("articles", []):
+        for it in _parse_llm_json(raw).get("articles", []):
             notes[it.get("title", "")] = (it.get("note", ""), bool(it.get("skip")))
     except Exception as e:
         print("  LLM推荐语失败, 退回原文摘要: {}".format(str(e)[:60]), flush=True)

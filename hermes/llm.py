@@ -14,7 +14,7 @@ from . import config
 LLM_USAGE = []  # [{"in":..,"out":..,"total":..,"est":bool}]
 
 
-def chat(prompt_text: str, system: str = "", max_tokens: int = 4000, timeout: int = 300) -> str:
+def chat(prompt_text: str, system: str = "", max_tokens: int = 16000, timeout: int = 300) -> str:
     if not config.LLM_API_KEY:
         raise RuntimeError(
             "缺少 LLM_API_KEY 环境变量。示例: "
@@ -45,4 +45,11 @@ def chat(prompt_text: str, system: str = "", max_tokens: int = 4000, timeout: in
     else:
         tin = (len(system) + len(prompt_text)) // 2
         LLM_USAGE.append({"in": tin, "out": 200, "total": tin + 200, "est": True})
-    return data["choices"][0]["message"]["content"]
+    msg = data["choices"][0]["message"]
+    content = msg.get("content") or ""
+    if not content:
+        # 推理模型 (如 deepseek-v4-flash) 可能把 max_tokens 全部耗在 reasoning 上
+        raise RuntimeError("LLM返回空content (finish_reason={}, reasoning={}字符) — 需增大max_tokens"
+                           .format(data["choices"][0].get("finish_reason"),
+                                   len(msg.get("reasoning_content") or "")))
+    return content

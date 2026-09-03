@@ -8,6 +8,13 @@
   python -m hermes mp [days]                       # 公众号文章日报
 """
 import sys
+import os
+
+# Windows 控制台默认 GBK, 强制 UTF-8 输出避免 UnicodeEncodeError
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from . import config, collector
 
