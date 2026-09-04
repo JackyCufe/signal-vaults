@@ -124,6 +124,16 @@ signal_vaults/
 
 本项目仅用于处理**本人自己设备上**的微信数据（个人知识管理）。请勿用于监控他人、批量采集或任何违反微信使用条款的场景。密钥文件（`all_keys.json`）等同于聊天记录的访问凭证，切勿提交到版本库或分享给他人。
 
+## 致谢与直接依赖
+
+Signal Vaults 建立在以下开源项目之上：
+
+- [wechat-cli-plus](https://github.com/maomao3334/wechat-cli-plus)：本地微信数据访问与解密
+- [PyCryptodome](https://github.com/Legrandin/pycryptodome)：加密能力
+- [python-zstandard](https://github.com/indygreg/python-zstandard)：数据解压能力
+
+感谢上述项目及其贡献者。各依赖的许可证以其上游仓库为准。
+
 ## License
 
-Apache-2.0（继承上游 [wechat-cli-plus](https://github.com/maomao3334/wechat-cli-plus)）
+本项目采用 Apache-2.0。上游依赖保留各自的许可证与版权声明。
