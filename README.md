@@ -89,6 +89,28 @@ signal-vaults mp 3                            # 公众号日报
 不要做的：不要读取或上传 all_keys.json、不要修改 ~/.wechat-cli/、不要把聊天记录发给用户以外的服务。
 ```
 
+## 注册为 Agent 技能（推荐）
+
+仓库自带 `.agents/skills/signal-vaults/SKILL.md`，clone 后即可被 Agent 识别：
+
+```bash
+git clone https://github.com/JackyCufe/signal-vaults.git
+cd signal-vaults
+# Codex 等支持 .agents/skills/ 约定的 Agent，进入本仓库即自动加载该技能
+```
+
+想全局可用（任意目录都能触发），复制一份到用户级目录：
+
+```bash
+# Codex
+mkdir -p ~/.agents/skills && cp -r .agents/skills/signal-vaults ~/.agents/skills/
+
+# Claude Code
+mkdir -p ~/.claude/skills && cp -r .agents/skills/signal-vaults ~/.claude/skills/signal-vaults
+```
+
+不装技能也行：直接把上面的「Agent 启动提示词」粘给 Agent 即可，零安装。
+
 ## 架构
 
 ```
