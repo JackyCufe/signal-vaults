@@ -5,7 +5,11 @@
   SIGNAL_VAULTS_DB_DIR        微信数据目录 (.../db_storage), 缺省自动检测
   SIGNAL_VAULTS_KEYS_FILE     密钥文件, 缺省 ~/.wechat-cli/all_keys.json (wechat-cli init 生成)
   SIGNAL_VAULTS_WORK_DIR      工作目录 (解密库/缓存/输出), 缺省 ./work
-  LLM_API_KEY          OpenAI 兼容 API Key (必填才能调 LLM)
+  LLM_BACKEND          LLM 后端: auto / api / codex
+  CODEX_BIN             可选, Codex CLI 的完整路径
+  CODEX_MODEL           可选, Codex CLI 使用的模型
+  CODEX_PROXY           可选, Codex CLI 使用的代理
+  LLM_API_KEY          OpenAI 兼容 API Key (API 后端必填)
   LLM_BASE_URL         缺省 https://open.bigmodel.cn/api/paas/v4 (智谱)
   LLM_MODEL            缺省 glm-4-flash
   LLM_PROXY            可选, 如 http://127.0.0.1:7897
@@ -58,6 +62,10 @@ def base_dir() -> str:
 
 
 # ---------- LLM (OpenAI 兼容 /chat/completions) ----------
+LLM_BACKEND = _env("LLM_BACKEND", "auto").strip().lower()
+CODEX_BIN = _env("CODEX_BIN")
+CODEX_MODEL = _env("CODEX_MODEL")
+CODEX_PROXY = _env("CODEX_PROXY")
 LLM_API_KEY = _env("LLM_API_KEY")
 LLM_BASE_URL = _env("LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip("/")
 LLM_MODEL = _env("LLM_MODEL", "glm-4-flash")

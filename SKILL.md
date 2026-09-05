@@ -5,21 +5,77 @@ description: 安装、首次配置或运行 signal-vaults：从本机微信生�
 
 # Signal Vaults
 
-用本仓库的 `signal-vaults` CLI 从用户本机微信数据生成 Markdown 日报。首次使用时，按下面的顺序引导；日常运行时，只执行用户已经确认的来源。
+用本仓库的 `signal-vaults` CLI 从用户本机微信数据生成 Markdown 日报。
+交互固定为**两轮**；实际运行分**三轮**（环境检测 → 采集生成 → 推送/交付）。
+日常运行（非首次）时，直接执行用户已确认过的命令，不再重复提问。
 
-## 首次配置的对话流程
+---
 
-1. 确认项目已安装。若当前目录不是本仓库，克隆仓库并运行 `pip install .`；若依赖下载超时，按系统设置 `HTTPS_PROXY` 后重试。
-2. 运行 `signal-vaults doctor`，只报告微信数据、密钥、LLM 后端和 Discord 的状态，不读取或显示密钥文件内容。
-3. **先检查 Discord。** 若 doctor 显示未配置，明确告诉用户：本地 Markdown 仍可生成，但不会自动推送；询问用户是否要启用推送。用户选择启用时，给出下方的 Discord 配置步骤，并要求用户自行把 Token 和 Channel ID 写进本地 `.env`。不要要求用户在聊天中发送 Token。
-4. 再询问用户要接入哪个微信群：
-   - 用户已给出精确群名时，只处理这个群。
-   - 用户不知道群名或明确要求查看候选时，运行 `signal-vaults groups` 或 `signal-vaults groups <关键词>`，展示结果后让用户选择。
-   - 不得为了寻找“有消息的群”而扫描、读取或代跑其他群。
-5. 提醒用户确认公众号名单。当前项目的公众号日报只读取 `signal_vaults/daily.py` 中的 `MP_LIST`；先说明现有名单，再请用户确认要保留、增加或移除哪些公众号。用户确认后才修改该名单；对外不展示 `gh_xxx` 内部 ID。
-6. 完成上述选择后，运行用户确认的群聊日报和/或公众号日报，并检查 `work/know_*.txt` 是否为可读 Markdown、是否隐藏内部 ID、链接是否为完整 URL。Discord 已配置时确认推送结果。
+## 第一轮交互：安装后一次性问齐（3 个问题放在同一条消息里）
 
-## 运行命令
+用户说"clone 这个仓库并运行"后，先完成准备动作：
+
+```bash
+git clone https://github.com/JackyCufe/signal-vaults.git   # 已在仓库内则跳过
+cd signal-vaults
+pip install .        # 依赖克隆超时 → 设置 HTTPS_PROXY 后重试
+signal-vaults doctor # 只报告状态，不读取/显示密钥内容
+```
+
+然后**在同一条消息里**发出以下 3 问 + 1 提示，逐字保持顺序：
+
+> 1️⃣ **推送方式**：日报你要推送到 Discord，还是仅保存到本地？
+> 2️⃣ **目标群聊**：请提供要生成日报的群聊名称（不确定名称可让我运行 `signal-vaults groups` 列出候选）。
+> 3️⃣ **目标公众号**：请提供要追踪的公众号名称（当前名单：`数字生命卡兹克`、`刘小排r`，可增删）。
+>
+> 💡 如果你想推送 Discord：请先检查项目根目录 `.env`（可从 `.env.example` 复制）中是否已填写 `DISCORD_BOT_TOKEN` 和 `DISCORD_CHANNEL_ID`。还没有的话，等我按你的回答给你配置教程。
+
+用户作答后**如实记录**（推送偏好、群名、公众号名单），第一轮交互结束。
+不得在这轮里追问额外问题，不得代替用户做选择。
+
+---
+
+## 第二轮交互：按用户回答走三分支
+
+### 分支 ①｜仅本地 + 两个来源齐全 → 直接开干
+
+- 不需要 Discord，且群聊/公众号名称都已给出。
+- 直接执行第三轮（见下），产出 `work/know_*.txt`，报告文件路径即完成。
+
+### 分支 ②｜要 Discord 但没配置 → 先教学，后确认
+
+1. 输出配置教学：指向 `docs/discord-setup.md`（手把手图文教程），并附极简步骤概要：
+   - 开发者门户创建 Application → Bot 页复制 Token
+   - 开启 **Message Content Intent** → OAuth2 URL 邀请 bot 进服务器（勾 Send Messages）
+   - Discord 开发者模式下右键频道复制 Channel ID
+   - 写入本地 `.env` 的 `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID`（国内网络另配 `PUSH_PROXY`）
+2. **不要**让用户把 token 粘贴到聊天里；token 只进 `.env` 文件。
+3. 用户配置完成后，运行 `signal-vaults doctor` 确认显示 Discord 已配置。
+4. 回头二次确认：**"群聊 = X、公众号 = Y，是否确认开始生成？"** —— 用户确认后才进入第三轮。
+
+### 分支 ③｜要 Discord 且已配置 → 直接开干 + 推送
+
+- `.env` 中 token/channel 齐全（doctor 确认通过）。
+- 直接执行第三轮，完成后必须核对推送日志 `-> Discord HTTP 200` 并向用户报告。
+
+---
+
+## 第三轮运行：实际执行
+
+```bash
+signal-vaults daily <天数> "<已确认的群名>"   # 群聊日报
+signal-vaults mp <天数>                        # 公众号日报
+```
+
+- 结果文件：`work/know_*.txt`（Markdown）
+- 交付前自检（三条都必须过）：
+  1. 内容为可读 Markdown
+  2. 不出现 `gh_xxx` 等内部 ID
+  3. 链接均为完整 URL，且来自聊天记录原文
+- Discord 模式：确认日志出现 `-> Discord HTTP 200`；失败时按 `docs/discord-setup.md` 的常见问题表排查后重试一次。
+- 仅本地模式：向用户报告文件绝对路径即完成。
+
+## 运行命令参考
 
 ```bash
 signal-vaults doctor
@@ -29,7 +85,7 @@ signal-vaults daily 2 "已确认的群名"
 signal-vaults mp 3
 ```
 
-群名由用户确认后才可传给 `daily`。`mp` 没有文章时输出“无文章”是正常结果。
+`mp` 没有文章时输出"无文章"是正常结果。
 
 ## LLM 选择
 
@@ -41,32 +97,15 @@ LLM_BACKEND=auto
 
 `auto` 会优先使用已配置的兼容 API；未提供 `LLM_API_KEY` 时，会使用本机 `codex login` 的登录态（前提是 Codex CLI 可用）。因此 Codex 路径不需要额外的 LLM API Key。若用户明确要求，可设置 `LLM_BACKEND=codex` 或 `LLM_BACKEND=api`。
 
-## Discord 配置
+## 安全红线（任何分支都必须遵守）
 
-引导用户完成以下步骤：
+- **禁止**读取、上传或展示 `all_keys.json`（等同于聊天记录访问凭证）
+- **禁止**修改 `~/.wechat-cli/` 目录
+- **禁止**要求用户在聊天中发送 token / API key；一切密钥只进本地 `.env`
+- **禁止**把聊天记录原文发送给用户以外的服务
+- 仅处理用户本人设备上的微信数据
 
-1. 打开 <https://discord.com/developers/applications>，创建 Application，然后在 **Bot** 页面创建 Bot 并复制 Token。
-2. 通过 OAuth2 URL Generator 把 Bot 邀请进目标服务器；目标 Channel 至少授予 `View Channel`、`Send Messages`、`Embed Links`、`Attach Files`。
-3. 在 Discord 开启 Developer Mode，右键目标 Channel 并复制 Channel ID。
-4. 在项目根目录将 `.env.example` 复制为 `.env`，仅在本地填写：
+## 相关文档
 
-```env
-DISCORD_BOT_TOKEN=...
-DISCORD_CHANNEL_ID=...
-LLM_BACKEND=auto
-```
-
-5. 重新运行 `signal-vaults doctor`，确认显示“Discord 推送 = 已配置”。
-
-`.env` 不得提交到 Git，也不得在终端输出、报告或对话中回显 Token。Discord 的价值是可按群聊、公众号或主题创建不同 Channel；当前版本一次推送到配置的一个 Channel。
-
-## 微信前置条件和边界
-
-- 缺微信数据目录：记录“本机未安装微信或未登录过”，停止微信数据相关步骤。
-- 缺 `~/.wechat-cli/all_keys.json`：Windows 运行 `wechat-cli init`；macOS/Linux 运行 `sudo wechat-cli init`，之后重跑 doctor。
-- 不读取、展示、上传或提交 `all_keys.json`、`.env`、聊天原文或 Discord Token。
-- 只处理用户本人设备上的数据和用户明确确认的群聊/公众号来源。
-
-## 完成时的汇报
-
-简要汇报安装、doctor、Discord、已选群聊、公众号名单、执行命令、输出文件和推送结果；失败时附关键错误及已尝试的安全修复。不要在报告中复制聊天原文或密钥。
+- Discord 配置手把手教程（含截图位与常见问题）：`docs/discord-setup.md`
+- 配置模板：`.env.example`

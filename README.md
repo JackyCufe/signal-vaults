@@ -57,6 +57,8 @@ signal-vaults mp 3                            # 公众号日报
 | `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID` | | 配置后自动推送 Discord |
 | `PUSH_PROXY` | | Discord 推送代理（默认跟随 `LLM_PROXY`） |
 
+> 📷 从零配置 Discord Bot（拿 Token、开 Intent、邀请进服、拿频道 ID）：见 **[docs/discord-setup.md](docs/discord-setup.md)** 手把手图文教程。
+
 ## 平台兼容性
 
 | 平台 | 密钥提取 (`wechat-cli init`) | 本工具 | 备注 |
