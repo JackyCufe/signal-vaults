@@ -9,13 +9,17 @@
 
 > 如果你已有现成的服务器（想用现有频道收日报），可以跳到第 2 步。
 
-1. 打开 Discord 客户端（桌面版或网页版均可）
+1. 打开 Discord 客户端（桌面版或网页版均可，https://discord.com）
 2. 在左侧服务器列表最下方，点击 **「+ 添加服务器」**
-3. 选择 **「亲自创建」** → 选「供我和朋友使用」之类的模板均可
+3. 选择 **「Create my own」** → 「For me and my friends」之类的模板均可
 4. 输入服务器名（比如 `Signal Vaults`），可选上传头像，点 **「创建」**
-5. 创建后默认会有一个 `#常规` 文字频道；建议右键改名为 `#wechat`（专门收日报，后面频道 ID 就用它）
+5. 创建后默认会有一个 `#常规` 文字频道；建议右键改名为 `#wechat`（专门收微信日报，后面频道 ID 就用它）
 
-📷 *截图位 1：添加服务器 + 命名界面*
+![第1步：点击添加服务器](assets/discord/step1-add-server.png)
+
+选择「亲自创建」，输入服务器名（如 `Signal Vaults`）
+
+![第1步：创建 Signal Vault 服务器和 wechat 频道](assets/discord/step1-server-wechat-channel.png)
 
 ---
 
@@ -26,7 +30,9 @@
 3. 点击右上角 **「New Application」**
 4. 输入名字（比如 `signal-vaults-bot`），勾选同意条款，点 **「Create」**
 
-📷 *截图位 2：New Application 按钮*
+![第2步：New Application 按钮](assets/discord/step2-new-application.png)
+
+![第2步：填写应用名并创建](assets/discord/step2-create-app-dialog.png)
 
 ---
 
@@ -37,13 +43,13 @@
 3. **立即复制**弹出的 token（只显示这一次！）
    - Token 长这样：`MTU0NDI3NDk1NzY3MDk0...`（一长串字母数字点分格式）
    - ⚠️ 这是 bot 的"密码"，**绝不外泄、不要提交到 git、不要截进图里**
-4. 把 token 填入项目根目录 `.env`（没有就从 `.env.example` 复制一份）：
+4. 把 token 填入项目根目录 `.env`（没有就请codex从 `.env.example` 复制一份）：
 
 ```
 DISCORD_BOT_TOKEN=粘贴你的token
 ```
 
-📷 *截图位 3：Bot 页面的 Token 区域（注意打码）*
+![第3步：Bot 页面找到 Reset Token](assets/discord/step3-bot-token.png)
 
 ---
 
@@ -55,7 +61,7 @@ DISCORD_BOT_TOKEN=粘贴你的token
 
 > ⚠️ 不开这个开关，bot 会连不上（报错 `Used disallowed intents`）。
 
-📷 *截图位 4：Privileged Gateway Intents 开关*
+![第4步：Privileged Gateway Intents 开关](assets/discord/step4-message-content-intent.png)
 
 ---
 
@@ -67,7 +73,9 @@ DISCORD_BOT_TOKEN=粘贴你的token
 4. 复制页面底部生成的 **邀请链接**，粘贴到浏览器打开
 5. 在服务器下拉框里选中**第 1 步创建的服务器**（如 `Signal Vaults`），点授权
 
-📷 *截图位 5：URL Generator 勾选页*
+![第5步：OAuth2 URL Generator 勾选权限](assets/discord/step5-oauth-url-generator.png)
+
+![第5步：选择刚创建的服务器并授权](assets/discord/step5-authorize-server.png)
 
 ---
 
@@ -82,7 +90,9 @@ DISCORD_BOT_TOKEN=粘贴你的token
 DISCORD_CHANNEL_ID=粘贴频道ID
 ```
 
-📷 *截图位 6：开发者模式下右键复制频道 ID*
+![第6步：开启开发者模式](assets/discord/step6-developer-mode.png)
+
+![第6步：右键频道复制 Channel ID](assets/discord/step6-copy-channel-id.png)
 
 ---
 
@@ -91,7 +101,7 @@ DISCORD_CHANNEL_ID=粘贴频道ID
 国内网络需要代理。在 `.env` 里补一行：
 
 ```
-PUSH_PROXY=http://127.0.0.1:7897   # 换成你自己的代理端口
+PUSH_PROXY=http://127.0.0.1:7897   # 换成你自己的代理端口，如果不知道可以让AI查一下
 ```
 
 然后跑一次日报验证：
