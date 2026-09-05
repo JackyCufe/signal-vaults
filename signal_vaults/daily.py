@@ -370,9 +370,9 @@ def _subscribed_ghs(days):
 
 
 # 公众号抓取清单: 只抓这里的号 (显示名: gh_id); 想增删直接改这个 dict
+# gh_id 查法: signal-vaults groups 无关; 在微信 contact 库里搜公众号昵称得到 username
 MP_LIST = {
-    "数字生命卡兹克": "gh_94dba26f8ca0",
-    "刘小排r": "gh_d56f73c13a02",
+    # "示例公众号": "gh_xxxxxxxxxxxx",
 }
 
 

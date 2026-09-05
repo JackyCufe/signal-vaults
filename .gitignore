@@ -24,3 +24,7 @@ magic_dumps/
 agentic_lab_1_48h.txt
 hermes-agent/
 
+
+# --- 测试/构建残留 ---
+.pytest_cache/
+signal_vaults.egg-info/
