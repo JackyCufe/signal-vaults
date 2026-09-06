@@ -91,17 +91,22 @@ def digest_to_text(digest, title):
 
 
 def send_post(chat_id, title, lines):
-    """发送 post 富文本: lines = [(text, href或None), ...]; 链接可点击"""
+    """发送 post 富文本: lines = [(text, href|None), ...]
+    多行支持: text 内含 \n 时拆成多行; 空行 → 空段落(序号间留白)
+    """
     import lark_oapi as lark
     from lark_oapi.api.im.v1 import (CreateMessageRequest,
                                      CreateMessageRequestBody)
-    elements = []
+    paragraphs = []
     for text, href in lines:
-        if href:
-            elements.append({"tag": "a", "text": text, "href": href})
-        else:
-            elements.append({"tag": "plain_text", "content": text})
-    content = {"post": {"zh_cn": {"title": title, "content": [elements]}}}
+        for seg in text.split("\n"):
+            if not seg.strip():
+                paragraphs.append([])  # 空段落 = 空行
+            elif href:
+                paragraphs.append([{"tag": "a", "text": seg, "href": href}])
+            else:
+                paragraphs.append([{"tag": "plain_text", "content": seg}])
+    content = {"post": {"zh_cn": {"title": title, "content": paragraphs}}}
     try:
         client = _client()
         req = CreateMessageRequest.builder() \
@@ -122,16 +127,23 @@ def send_post(chat_id, title, lines):
 
 
 def digest_post_lines(digest):
-    """digest → post 行列表: [(text, href|None)]"""
+    """digest → post 行列表: [(text, href|None)] — markdown 对齐版
+    序号行加粗不可用(post 无 md), 用「N. 标题」+ 空行分隔每个条目
+    """
     m = digest["meta"]
-    out = [("近{}天 | {}条源".format(m.get("days", 1), m.get("total", "?")), None)]
+    out = [("近{}天 | 共{}条源消息".format(m.get("days", 1), m.get("total", "?")), None)]
     for i, k in enumerate(digest["hot"][:8], 1):
+        out.append(("", None))  # 条目间空行
         out.append(("{}. {}".format(i, k.get("topic", "")), None))
-        out.append(("   {}".format(k.get("detail", "")), None))
+        out.append(("{}".format(k.get("detail", "")), None))
+        who = k.get("who", "")
+        if who:
+            out.append(("   —— {}".format(who), None))
     res = digest.get("resources") or []
     if res:
-        out.append(("— 资源/链接 —", None))
-        for r in res[:8]:
+        out.append(("", None))
+        out.append(("—— 资源/链接 ——", None))
+        for r in res[:10]:
             if isinstance(r, dict) and r.get("url"):
                 out.append(("· " + (r.get("title") or r["url"])[:60], r["url"]))
             elif isinstance(r, dict):
