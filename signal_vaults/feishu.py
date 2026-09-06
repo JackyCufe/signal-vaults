@@ -71,10 +71,10 @@ def send_text(chat_id, text):
 
 
 def digest_to_text(digest, title):
-    """digest dict → 飞书纯文本日报（飞书 text 消息不支持 md 加粗, 用符号排版）"""
+    """digest dict → 飞书纯文本日报（不带群ID; 链接用 post 富文本才是超链接, text 只能裸URL）"""
     m = digest["meta"]
-    lines = ["【{}】{} 近{}天 | {}条源".format(
-        title, m.get("chat", ""), m.get("days", 1), m.get("total", "?")), ""]
+    lines = ["【{}】近{}天 | {}条源".format(
+        title, m.get("days", 1), m.get("total", "?")), ""]
     for i, k in enumerate(digest["hot"][:8], 1):
         lines.append("{}. {}".format(i, k.get("topic", "")))
         lines.append("   {}".format(k.get("detail", "")))
@@ -90,13 +90,65 @@ def digest_to_text(digest, title):
     return NL.join(lines)[:6000]
 
 
+def send_post(chat_id, title, lines):
+    """发送 post 富文本: lines = [(text, href或None), ...]; 链接可点击"""
+    import lark_oapi as lark
+    from lark_oapi.api.im.v1 import (CreateMessageRequest,
+                                     CreateMessageRequestBody)
+    elements = []
+    for text, href in lines:
+        if href:
+            elements.append({"tag": "a", "text": text, "href": href})
+        else:
+            elements.append({"tag": "plain_text", "content": text})
+    content = {"post": {"zh_cn": {"title": title, "content": [elements]}}}
+    try:
+        client = _client()
+        req = CreateMessageRequest.builder() \
+            .receive_id_type("chat_id") \
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("post")
+                .content(json.dumps(content, ensure_ascii=False))
+                .build()) \
+            .build()
+        resp = client.im.v1.message.create(req)
+        if resp.success():
+            return True, ""
+        return False, "code={} msg={}".format(resp.code, resp.msg)
+    except Exception as e:
+        return False, str(e)
+
+
+def digest_post_lines(digest):
+    """digest → post 行列表: [(text, href|None)]"""
+    m = digest["meta"]
+    out = [("近{}天 | {}条源".format(m.get("days", 1), m.get("total", "?")), None)]
+    for i, k in enumerate(digest["hot"][:8], 1):
+        out.append(("{}. {}".format(i, k.get("topic", "")), None))
+        out.append(("   {}".format(k.get("detail", "")), None))
+    res = digest.get("resources") or []
+    if res:
+        out.append(("— 资源/链接 —", None))
+        for r in res[:8]:
+            if isinstance(r, dict) and r.get("url"):
+                out.append(("· " + (r.get("title") or r["url"])[:60], r["url"]))
+            elif isinstance(r, dict):
+                out.append(("· " + r.get("title", ""), None))
+    return out
+
+
 def push_feishu(digest, txt_path=None):
     """兼容 daily.py 的旧入口: 若配置了 WS 版凭证且有目标群, 主动推送日报。"""
     if not (feishu_ws_ready() and os.environ.get("FEISHU_TARGET_CHAT")):
         print("  (未配置 FEISHU_APP_ID/SECRET 或 FEISHU_TARGET_CHAT, 跳过飞书推送)")
         return 0
-    ok, msg = send_text(os.environ["FEISHU_TARGET_CHAT"],
-                        digest_to_text(digest, "Signal Vaults 日报"))
+    chat = os.environ["FEISHU_TARGET_CHAT"]
+    ok, msg = send_post(chat, "Signal Vaults 日报", digest_post_lines(digest))
+    if not ok:  # post 失败(内容超限等)退回纯文本
+        ok, msg2 = send_text(chat, digest_to_text(digest, "Signal Vaults 日报"))
+        msg = msg2 if not ok else msg
     print("  -> 飞书推送 {}".format("OK" if ok else "失败: " + msg))
     return 200 if ok else -1
 

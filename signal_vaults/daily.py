@@ -21,7 +21,7 @@ PROMPT_HEAD = ("你是AI前沿知识筛选员。以下是微信群「{chat}」�
                "群里没发过链接就输出空数组, 严禁自己补全/构造/推测任何 URL。"
                "{trace_rule}"
                "只输出JSON(不要markdown):")
-PROMPT_EXAMPLE = ('{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"{refs_demo}}],'
+PROMPT_EXAMPLE = ('{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"@REFS_DEMO@}],'
                   '"resources":[{"title":"名称","url":"聊天记录中的原始链接","note":"一句话说明"}]}')
 PROMPT_EMPTY = '{"knowledge":[],"resources":[]}'
 
@@ -117,7 +117,7 @@ def summarize_chunks(username, msgs, days, lookback_label="1"):
         head = PROMPT_HEAD.format(chat=collector.group_name(username) or username,
                                   days=days, part=idx + 1, n=len(ch),
                                   trace_rule=trace_rule)
-        prompt = head + NL + PROMPT_EXAMPLE.format(refs_demo=refs_demo) + NL + "没有知识内容就输出 " + PROMPT_EMPTY
+        prompt = head + NL + PROMPT_EXAMPLE.replace("@REFS_DEMO@", refs_demo) + NL + "没有知识内容就输出 " + PROMPT_EMPTY
         data, ok = None, False
         for attempt in range(3):
             try:
@@ -229,10 +229,18 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
     try:
         brief = json.dumps(kd[:40], ensure_ascii=False)[:16000]
         raw = llm.chat(
-            "以下是群内知识条目。合并同类项按重要性排序, 输出Top3-8 JSON: "
-            + '{"hot":[{"topic":"...","detail":"2-3句: 是什么/为什么重要/怎么用","who":"..."}]}',
+            "以下是群内知识条目。合并同类项按重要性排序, 输出Top3-8 JSON(每条保留原条目的 refs 字段, 逐字复制; 原条目没有 refs 就不带): "
+            + '{"hot":[{"topic":"...","detail":"2-3句: 是什么/为什么重要/怎么用","who":"...","refs":[1234]}]}',
             system=brief)
-        hot = _parse_llm_json(raw).get("hot", kd[:8])
+        hot_llm = _parse_llm_json(raw).get("hot", None)
+        if hot_llm:
+            # 用 topic 前缀匹配把原条目的已校验 refs 映射回 LLM 重排序后的条目
+            by_topic = {k["topic"][:25]: k.get("refs") for k in hot if k.get("refs")}
+            for k in hot_llm:
+                refs = by_topic.get((k.get("topic") or "")[:25])
+                if refs:
+                    k["refs"] = refs
+            hot = hot_llm
     except Exception:
         pass
     return {"hot": hot, "resources": rd,
