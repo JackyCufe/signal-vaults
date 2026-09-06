@@ -105,7 +105,7 @@ def send_post(chat_id, title, lines):
             elif href:
                 paragraphs.append([{"tag": "a", "text": seg, "href": href}])
             else:
-                paragraphs.append([{"tag": "plain_text", "content": seg}])
+                paragraphs.append([{"tag": "text", "text": seg}])  # post 只认 text 标签, 不支持 plain_text
     content = {"post": {"zh_cn": {"title": title, "content": paragraphs}}}
     try:
         client = _client()
@@ -128,10 +128,12 @@ def send_post(chat_id, title, lines):
 
 def digest_post_lines(digest):
     """digest → post 行列表: [(text, href|None)] — markdown 对齐版
-    序号行加粗不可用(post 无 md), 用「N. 标题」+ 空行分隔每个条目
+    首行群名(不要ID); 条目间空行; who 署名行
     """
     m = digest["meta"]
-    out = [("近{}天 | 共{}条源消息".format(m.get("days", 1), m.get("total", "?")), None)]
+    gname = m.get("chat", "")
+    out = [("{} · 近{}天 | 共{}条源消息".format(
+        gname or "Signal Vaults", m.get("days", 1), m.get("total", "?")), None)]
     for i, k in enumerate(digest["hot"][:8], 1):
         out.append(("", None))  # 条目间空行
         out.append(("{}. {}".format(i, k.get("topic", "")), None))
