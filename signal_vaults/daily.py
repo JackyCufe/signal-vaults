@@ -178,7 +178,9 @@ def collect_context(username, refs, radius=2):
         txt = re.sub(r"^\[\d{6,}\]\s*", "", txt)
         # 超长 URL 截断显示
         txt = re.sub(r"(https?://[^\s]{60})[^\s]+", r"...", txt)
-        txt = txt.replace("&amp;", "&")[:160]
+        txt = txt.replace("&amp;", "&")
+        # 控制字符会导致飞书卡片整个 elements 被服务端丢弃(实测), 全部剔除
+        txt = "".join(ch for ch in txt if ord(ch) >= 32 or ch == "\n")[:160]
         out.append((m["local_id"],
                     time.strftime("%m-%d %H:%M", time.localtime(m["ts"])),
                     m.get("sender") or "?", txt))
@@ -188,6 +190,7 @@ def collect_context(username, refs, radius=2):
 def merge_knowledge(username, parts, days, total, raw_msgs=None):
     know, res = [], []
     # 收集聊天记录中真实出现过的 URL (白名单校验用)
+    # 注: 从 raw 全文抓取 (display 截断 120 字符会丢 URL 参数), 且含域名级兑底
     raw_urls = set()
     for m in (raw_msgs or []):
         u = m.get("url") or ""
@@ -196,9 +199,9 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
             u = u.replace("]]", "").strip()
             if u.startswith("http"):
                 raw_urls.add(u)
-        blob = m.get("display") or ""
+        blob = (m.get("raw") or "") + " " + (m.get("display") or "")
         for um in re.finditer(r"https?://[^\s\"'<>】]+", blob):
-            raw_urls.add(um.group(0))
+            raw_urls.add(um.group(0).replace("&amp;", "&"))
     for p in parts:
         know += p.get("knowledge", [])
         res += p.get("resources", [])
@@ -214,11 +217,23 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
         if key and key not in seen:
             seen.add(key)
             # URL 白名单: 只保留聊天记录中真实出现过的; LLM 补编的一律丢弃 url (保留标题当纯文字)
+            # 注意: LLM 常逐字复制 xml 转义态(&amp;), 白名单两侧都要先还原成真实 URL 再比对
+            # 匹配策略: 逐字子串 -> 失败则域名级兑底 (分享卡片链接在 xml 里常被转义/截断)
             if isinstance(r, dict) and r.get("url"):
-                u = r["url"].strip()
-                if not any(u == ru or u in ru or ru in u for ru in raw_urls):
+                u = r["url"].strip().replace("&amp;", "&")
+                r = dict(r)
+                r["url"] = u
+                exact = any(u == ru or u in ru or ru in u for ru in raw_urls)
+                if not exact:
+                    try:
+                        from urllib.parse import urlparse
+                        udom = urlparse(u if u.startswith("http") else "https://" + u).netloc
+                        exact = udom and any(
+                            urlparse(ru).netloc == udom for ru in raw_urls if ru.startswith("http"))
+                    except Exception:
+                        exact = False
+                if not exact:
                     print("    [链接校验] 丢弃非聊天记录来源 URL: {}".format(u[:60]))
-                    r = dict(r)
                     r.pop("url", None)
             rd.append(r)
     hot = kd

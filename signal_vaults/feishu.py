@@ -207,6 +207,12 @@ def digest_to_card(digest, title):
             elif isinstance(r, dict):
                 md.append("· {}".format(r.get("title", "")))
         elements.append({"tag": "markdown", "content": NL.join(md)})
+    # 防御: 任何控制字符都会让飞书服务端静默丢弃整个 elements (实测), 最后兜底清洗
+    def _clean(c):
+        return "".join(ch for ch in (c or "") if ord(ch) >= 32 or ch == "\n")
+    for el in elements:
+        if el.get("tag") == "markdown":
+            el["content"] = _clean(el["content"])
     return {
         "config": {"wide_screen_mode": True},
         "header": {"title": {"tag": "plain_text", "content": title},
