@@ -256,12 +256,14 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
             system=brief)
         hot_llm = _parse_llm_json(raw).get("hot", None)
         if hot_llm:
-            # 用 topic 前缀匹配把原条目的已校验 refs 映射回 LLM 重排序后的条目
-            by_topic = {k["topic"][:25]: k.get("refs") for k in hot if k.get("refs")}
+            # LLM 重排会改写 topic 文字, 用互含子串匹配把已校验 refs 映射回去
+            refd = [(k["topic"], k.get("refs")) for k in hot if k.get("refs")]
             for k in hot_llm:
-                refs = by_topic.get((k.get("topic") or "")[:25])
-                if refs:
-                    k["refs"] = refs
+                t = (k.get("topic") or "")
+                for ot, refs in refd:
+                    if (t[:20] and (t[:20] in ot or ot[:20] in t)) or                        (t and ot and (t in ot or ot in t)):
+                        k["refs"] = refs
+                        break
             hot = hot_llm
     except Exception:
         pass
