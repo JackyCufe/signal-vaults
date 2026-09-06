@@ -171,11 +171,18 @@ def collect_context(username, refs, radius=2):
         i = idx_of[ref]
         for j in range(max(0, i - radius), min(len(ordered), i + radius + 1)):
             picked[ordered[j]["local_id"]] = ordered[j]
-    return [(m["local_id"],
-             time.strftime("%m-%d %H:%M", time.localtime(m["ts"])),
-             m.get("sender") or "?",
-             (m.get("display") or m.get("raw") or "")[:200])
-            for _, m in sorted(picked.items(), key=lambda kv: kv[1]["local_id"])]
+    out = []
+    for _, m in sorted(picked.items(), key=lambda kv: kv[1]["local_id"]):
+        txt = (m.get("display") or m.get("raw") or "")
+        # 清理数字噪声: appmsg 分享卡片的 [消息ID] 前缀
+        txt = re.sub(r"^\[\d{6,}\]\s*", "", txt)
+        # 超长 URL 截断显示
+        txt = re.sub(r"(https?://[^\s]{60})[^\s]+", r"...", txt)
+        txt = txt.replace("&amp;", "&")[:160]
+        out.append((m["local_id"],
+                    time.strftime("%m-%d %H:%M", time.localtime(m["ts"])),
+                    m.get("sender") or "?", txt))
+    return out
 
 
 def merge_knowledge(username, parts, days, total, raw_msgs=None):
