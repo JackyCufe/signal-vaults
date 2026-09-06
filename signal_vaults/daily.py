@@ -19,9 +19,20 @@ PROMPT_HEAD = ("你是AI前沿知识筛选员。以下是微信群「{chat}」�
                "技术教程、实践经验、行业数据、有信息量的事件。八卦/斗嘴/日常闲聊/梗图/情绪表达一律忽略。"
                "【链接铁律】resources 里的 url 字段只能逐字复制聊天记录中真实出现的链接; "
                "群里没发过链接就输出空数组, 严禁自己补全/构造/推测任何 URL。"
+               "{trace_rule}"
                "只输出JSON(不要markdown):")
-PROMPT_EXAMPLE = '{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"}],"resources":[{"title":"名称","url":"聊天记录中的原始链接","note":"一句话说明"}]}'
+PROMPT_EXAMPLE = ('{"knowledge":[{"topic":"知识点","detail":"2-3句: 是什么/为什么重要/怎么用","who":"分享者"{refs_demo}}],'
+                  '"resources":[{"title":"名称","url":"聊天记录中的原始链接","note":"一句话说明"}]}')
 PROMPT_EMPTY = '{"knowledge":[],"resources":[]}'
+
+
+def _trace_params():
+    """消息溯源开关: SIG_VAULTS_TRACE=1 时 LLM 输出 refs 字段引用消息编号"""
+    import os as _os
+    enabled = _os.environ.get("SIG_VAULTS_TRACE", "0") == "1"
+    return enabled, (",\"refs\":[1234,1240]" if enabled else ""), (
+        "【溯源铁律】knowledge 每条必须带 refs 字段: 从输入行首的 [#编号] 里逐字复制与该知识点直接相关的消息编号(2-5个); "
+        "严禁编造输入中不存在的编号。" if enabled else "")
 
 
 def _chat_key(u):
@@ -101,10 +112,12 @@ def summarize_chunks(username, msgs, days, lookback_label="1"):
             parts_out.append(json.load(open(pf, encoding="utf-8")))
             print("  part{}/{} (cached)".format(idx + 1, nchunks), flush=True)
             continue
-        text = format_msgs_for_llm(ch, limit_chars=2000)
+        trace_on, refs_demo, trace_rule = _trace_params()
+        text = format_msgs_for_llm(ch, limit_chars=2000, with_ids=trace_on)
         head = PROMPT_HEAD.format(chat=collector.group_name(username) or username,
-                                  days=days, part=idx + 1, n=len(ch))
-        prompt = head + NL + PROMPT_EXAMPLE + NL + "没有知识内容就输出 " + PROMPT_EMPTY
+                                  days=days, part=idx + 1, n=len(ch),
+                                  trace_rule=trace_rule)
+        prompt = head + NL + PROMPT_EXAMPLE.format(refs_demo=refs_demo) + NL + "没有知识内容就输出 " + PROMPT_EMPTY
         data, ok = None, False
         for attempt in range(3):
             try:
@@ -125,10 +138,12 @@ def summarize_chunks(username, msgs, days, lookback_label="1"):
     return parts_out
 
 
-def format_msgs_for_llm(msgs, limit_chars=45000):
+def format_msgs_for_llm(msgs, limit_chars=45000, with_ids=False):
     lines, budget = [], limit_chars
     for m in msgs:
-        line = "[{}] {}: {}".format(
+        tag = "[#{}] ".format(m["local_id"]) if with_ids else ""
+        line = "{}[{}] {}: {}".format(
+            tag,
             time.strftime("%m-%d %H:%M", time.localtime(m["ts"])), m["sender"], m["display"])
         if len(line) > 300:
             line = line[:300] + "..."
@@ -137,6 +152,30 @@ def format_msgs_for_llm(msgs, limit_chars=45000):
         budget -= len(line)
         lines.append(line)
     return NL.join(lines)
+
+
+def collect_context(username, refs, radius=2):
+    """按消息编号取原文上下文: 每个ref取前radius条+自身+后radius条, 去重按时间排序。
+    返回 [(local_id, time_str, sender, text)]; 编号无效时只返回存在的。"""
+    if not refs:
+        return []
+    from . import collector
+    us, msgs = collector.fetch_messages(username, days=90)
+    by_id = {m["local_id"]: m for m in msgs}
+    ordered = sorted(msgs, key=lambda m: m["local_id"])
+    idx_of = {m["local_id"]: i for i, m in enumerate(ordered)}
+    picked = {}
+    for ref in refs:
+        if ref not in by_id:
+            continue
+        i = idx_of[ref]
+        for j in range(max(0, i - radius), min(len(ordered), i + radius + 1)):
+            picked[ordered[j]["local_id"]] = ordered[j]
+    return [(m["local_id"],
+             time.strftime("%m-%d %H:%M", time.localtime(m["ts"])),
+             m.get("sender") or "?",
+             (m.get("display") or m.get("raw") or "")[:200])
+            for _, m in sorted(picked.items(), key=lambda kv: kv[1]["local_id"])]
 
 
 def merge_knowledge(username, parts, days, total, raw_msgs=None):
@@ -176,6 +215,17 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
                     r.pop("url", None)
             rd.append(r)
     hot = kd
+    # 溯源开关: 校验 refs 合法性 (必须是本群真实存在的 local_id, 防LLM编造)
+    import os as _os
+    if _os.environ.get("SIG_VAULTS_TRACE", "0") == "1" and raw_msgs:
+        valid_ids = {m["local_id"] for m in raw_msgs}
+        for k in hot:
+            refs = [r for r in (k.get("refs") or [])
+                    if isinstance(r, int) and r in valid_ids][:5]
+            if refs:
+                k["refs"] = refs
+            else:
+                k.pop("refs", None)
     try:
         brief = json.dumps(kd[:40], ensure_ascii=False)[:16000]
         raw = llm.chat(
@@ -199,6 +249,14 @@ def render_text(digest):
     for i, k in enumerate(digest["hot"], 1):
         lines.append("{}. **{}**  — {}".format(i, k.get("topic"), k.get("who", "")))
         lines.append("   " + str(k.get("detail", "")))
+        refs = k.get("refs")
+        if refs:
+            ctx = collect_context(m["raw_chat"], refs)
+            if ctx:
+                lines.append("   <details><summary>📎 原始上下文({}条)</summary>".format(len(ctx)))
+                for _lid, ts, who, txt in ctx:
+                    lines.append("   > [{}] {}: {}".format(ts, who, txt.replace(NL, " ")))
+                lines.append("   </details>")
     lines.append("")
     lines.append("## 资源/链接")
     for r in digest["resources"]:
