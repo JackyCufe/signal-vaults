@@ -27,7 +27,8 @@ import json
 import os
 import threading
 
-from . import config
+from . import config, collector
+from .daily import collect_context
 
 NL = "\n"
 
@@ -169,9 +170,13 @@ def push_feishu(digest, txt_path=None):
 
 
 def digest_to_card(digest, title):
-    """digest → 飞书卡片 (1.0 结构: 顶层 elements; 服务端实测认可, v2 body.elements 会被丢弃成 null)"""
+    """digest → 飞书卡片 (1.0 结构: 顶层 elements; 服务端实测认可, v2 body.elements 会被丢弃成 null)
+    群名: raw_chat(群ID) 用 group_name() 解析成名称, 永不显示 ID
+    """
     m = digest["meta"]
-    gname = m.get("chat") or "Signal Vaults"
+    gname = (m.get("chat") or "Signal Vaults")
+    if gname.endswith("@chatroom") or gname.endswith("@openim"):
+        gname = collector.group_name(m.get("raw_chat") or gname) or gname.split("@")[0]
     elements = []
     elements.append({"tag": "markdown",
                      "content": "**{} · 近{}天 | 共{}条源消息**".format(
@@ -182,6 +187,14 @@ def digest_to_card(digest, title):
         who = k.get("who", "")
         if who:
             lines.append("—— {}".format(who))
+        # 溯源: refs 有值时附原文引用 (真实聊天原文, 非总结)
+        refs = k.get("refs")
+        if refs and m.get("raw_chat"):
+            ctx = collect_context(m["raw_chat"], refs)
+            if ctx:
+                lines.append("📎 原始上下文:")
+                for _lid, ts, who2, txt in ctx:
+                    lines.append("> [{}] {}: {}".format(ts, who2, txt.replace(NL, " ")))
         elements.append({"tag": "markdown", "content": NL.join(lines)})
         elements.append({"tag": "hr"})
     res = digest.get("resources") or []
