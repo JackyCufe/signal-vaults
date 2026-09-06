@@ -154,39 +154,73 @@ def digest_post_lines(digest):
 
 
 def push_feishu(digest, txt_path=None):
-    """兼容 daily.py 的旧入口: 若配置了 WS 版凭证且有目标群, 主动推送日报。"""
+    """兼容 daily.py 的旧入口: 配置了 WS 凭证且有目标群时, 用 v2 卡片推日报。"""
     if not (feishu_ws_ready() and os.environ.get("FEISHU_TARGET_CHAT")):
         print("  (未配置 FEISHU_APP_ID/SECRET 或 FEISHU_TARGET_CHAT, 跳过飞书推送)")
         return 0
     chat = os.environ["FEISHU_TARGET_CHAT"]
-    ok, msg = send_post(chat, "Signal Vaults 日报", digest_post_lines(digest))
-    if not ok:  # post 失败(内容超限等)退回纯文本
-        ok, msg2 = send_text(chat, digest_to_text(digest, "Signal Vaults 日报"))
-        msg = msg2 if not ok else msg
+    ok, msg = send_card(chat, digest_to_card(digest, "Signal Vaults 知识日报"))
+    if not ok:  # 卡片失败退回 post/text
+        ok, msg = send_post(chat, "Signal Vaults 知识日报", digest_post_lines(digest))
+        if not ok:
+            ok, msg = send_text(chat, digest_to_text(digest, "Signal Vaults 知识日报"))
     print("  -> 飞书推送 {}".format("OK" if ok else "失败: " + msg))
     return 200 if ok else -1
 
 
-# ---------- 接收 (WS 长连接守护) ----------
+def digest_to_card(digest, title):
+    """digest → 飞书卡片 (1.0 结构: 顶层 elements; 服务端实测认可, v2 body.elements 会被丢弃成 null)"""
+    m = digest["meta"]
+    gname = m.get("chat") or "Signal Vaults"
+    elements = []
+    elements.append({"tag": "markdown",
+                     "content": "**{} · 近{}天 | 共{}条源消息**".format(
+                         gname, m.get("days", 1), m.get("total", "?"))})
+    for i, k in enumerate(digest["hot"][:8], 1):
+        lines = ["**{}. {}**".format(i, k.get("topic", "")),
+                 k.get("detail", "")]
+        who = k.get("who", "")
+        if who:
+            lines.append("—— {}".format(who))
+        elements.append({"tag": "markdown", "content": NL.join(lines)})
+        elements.append({"tag": "hr"})
+    res = digest.get("resources") or []
+    if res:
+        md = ["**—— 资源/链接 ——**"]
+        for r in res[:10]:
+            if isinstance(r, dict) and r.get("url"):
+                md.append("· [{}]({})".format(
+                    (r.get("title") or r["url"])[:60], r["url"]))
+            elif isinstance(r, dict):
+                md.append("· {}".format(r.get("title", "")))
+        elements.append({"tag": "markdown", "content": NL.join(md)})
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {"title": {"tag": "plain_text", "content": title},
+                   "template": "blue"},
+        "elements": elements,
+    }
 
-HELP = ("Signal Vaults 指令:{}"
-        "• 日报 — 微信群+公众号+HN+Reddit 全部跑一遍{}"
-        "• hn — Hacker News 日报{}"
-        "• reddit [子版块...] — Reddit 日报{}"
-        "• 群聊日报 [天数] [群名] — 只跑微信群{}"
-        "• 帮助 — 显示本说明")
 
-
-def _run_and_reply(source_fn, chat_id, label):
-    def worker():
-        try:
-            digest, txt_path = source_fn()
-            send_text(chat_id, digest_to_text(digest, label))
-            if txt_path:
-                send_text(chat_id, "完整版见本地: {}".format(txt_path))
-        except Exception as e:
-            send_text(chat_id, "执行失败: {}".format(str(e)[:200]))
-    threading.Thread(target=worker, daemon=True).start()
+def send_card(chat_id, card):
+    """发送 interactive 卡片消息; 返回 (ok, msg)"""
+    import lark_oapi as lark
+    from lark_oapi.api.im.v1 import (CreateMessageRequest,
+                                     CreateMessageRequestBody)
+    try:
+        client = _client()
+        req = CreateMessageRequest.builder()             .receive_id_type("chat_id")             .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("interactive")
+                .content(json.dumps(card, ensure_ascii=False))
+                .build())             .build()
+        resp = client.im.v1.message.create(req)
+        if resp.success():
+            return True, ""
+        return False, "code={} msg={}".format(resp.code, resp.msg)
+    except Exception as e:
+        return False, str(e)
 
 
 def _handle_command(text, chat_id):
