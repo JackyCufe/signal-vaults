@@ -149,8 +149,6 @@ def digest_post_lines(digest):
         for r in res[:10]:
             if isinstance(r, dict) and r.get("url"):
                 out.append(("· " + (r.get("title") or r["url"])[:60], r["url"]))
-            elif isinstance(r, dict):
-                out.append(("· " + r.get("title", ""), None))
     return out
 
 
@@ -199,14 +197,16 @@ def digest_to_card(digest, title):
         elements.append({"tag": "hr"})
     res = digest.get("resources") or []
     if res:
+        # 只展示带可点击 url 的条目; 被白名单拦掉 url 的(LLM编造的)直接不出现
         md = ["**—— 资源/链接 ——**"]
         for r in res[:10]:
             if isinstance(r, dict) and r.get("url"):
                 md.append("· [{}]({})".format(
                     (r.get("title") or r["url"])[:60], r["url"]))
-            elif isinstance(r, dict):
-                md.append("· {}".format(r.get("title", "")))
-        elements.append({"tag": "markdown", "content": NL.join(md)})
+        if len(md) == 1:
+            md = []
+        if md:
+            elements.append({"tag": "markdown", "content": NL.join(md)})
     # 防御: 任何控制字符都会让飞书服务端静默丢弃整个 elements (实测), 最后兜底清洗
     def _clean(c):
         return "".join(ch for ch in (c or "") if ord(ch) >= 32 or ch == "\n")
