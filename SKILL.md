@@ -24,14 +24,15 @@ signal-vaults doctor # 只报告状态，不读取/显示密钥内容
 
 然后**在同一条消息里**发出以下 3 问 + 1 提示，逐字保持顺序：
 
-> 1️⃣ **推送方式**：飞书卡片 / Discord / 仅保存到本地？
+> 1️⃣ **推送方式**：要不要推送到飞书 / Discord？还是仅保存到本地？（可以都要，也可以只要其中一个）
 > 2️⃣ **目标群聊**：请提供要生成日报的群聊名称（不确定名称可让我运行 `signal-vaults groups` 列出候选）。
 > 3️⃣ **目标公众号**：请提供要追踪的公众号名称（初始名单为空，名单存于 `signal_vaults/daily.py` 的 `MP_LIST`，用户报名称后你协助填入；格式见该文件内注释）。
 >
-> 💡 飞书需要自建应用凭证（FEISHU_APP_ID/SECRET + FEISHU_TARGET_CHAT）；Discord 需要 bot token（DISCORD_BOT_TOKEN/CHANNEL_ID）。还没配置的话，等我按你的回答给你配置教程。
+> 💡 飞书需要自建应用凭证（FEISHU_APP_ID/SECRET + FEISHU_TARGET_CHAT），配置教程：`docs/feishu-setup.md`；Discord 需要 bot token（DISCORD_BOT_TOKEN/CHANNEL_ID），配置教程：`docs/discord-setup.md`。还没配置的话，等我按你的回答给你配置教程。
 
-用户作答后**如实记录**（推送偏好、群名、公众号名单），第一轮交互结束。
+用户作答后**如实记录**（是否推送、推送到哪个端、目标群聊名称、公众号名单），第一轮交互结束。
 不得在这轮里追问额外问题，不得代替用户做选择。
+注意：第 2 问确定的是**微信群聊**目标（日报数据源），第 3 问确定的是**公众号**追踪名单——两者独立，别混淆。
 
 ---
 
@@ -44,12 +45,12 @@ signal-vaults doctor # 只报告状态，不读取/显示密钥内容
 
 ### 分支 ②｜要推送但没配置 → 先教学，后确认
 
-1. 输出配置教学：
-   - **飞书**：open.feishu.cn → 开发者后台 → 创建企业自建应用 → 复制 App ID/Secret → 权限开通 `im:message` → 事件订阅选【长连接】+ `im.message.receive_v1` → 发布版本 → bot 拉进群 → chat_id 填 `FEISHU_TARGET_CHAT`
-   - **Discord**：开发者门户创建 Application → Bot 页复制 Token → 开启 Message Content Intent → 邀请 bot 进服务器 → Channel ID 写入 `.env`
+1. 按用户选择的端输出配置教学：
+   - **飞书**：指向 `docs/feishu-setup.md`（手把手图文教程）+ 极简概要：创建企业自建应用 → 复制 App ID/Secret → 权限开通 `im:message` 等 → 事件订阅选【长连接】+ `im.message.receive_v1` → 发布版本 → bot 拉进目标群 → chat_id 填 `FEISHU_TARGET_CHAT`
+   - **Discord**：指向 `docs/discord-setup.md`（手把手图文教程）+ 极简概要：开发者门户创建 Application → Bot 页复制 Token → 开启 Message Content Intent → 邀请 bot 进服务器 → Channel ID 写入 `.env`
 2. **不要**让用户把任何 token 粘贴到聊天里；密钥只进本地 `.env`。
-3. 配置完成后运行 `signal-vaults doctor` 确认。
-4. 二次确认：**"群聊 = X、公众号 = Y，是否确认开始生成？"** —— 确认后才进入第三轮。
+3. 配置完成后运行 `signal-vaults doctor` 确认所选项已配置。
+4. 二次确认：**"群聊 = X、公众号 = Y、推送到 [飞书/Discord/两者]，是否确认开始生成？"** —— 确认后才进入第三轮。
 
 ### 分支 ③｜已配置 → 直接开干 + 推送
 
@@ -107,5 +108,6 @@ LLM_BACKEND=auto
 ## 相关文档
 
 - 配置模板：`.env.example`
+- 飞书配置手把手教程（含截图位）：`docs/feishu-setup.md`
+- Discord 配置手把手教程：`docs/discord-setup.md`
 - 迭代历史：`CHANGELOG.md`
-- Discord 配置教程：`docs/discord-setup.md`

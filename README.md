@@ -63,12 +63,16 @@ export LLM_MODEL=deepseek-chat
 
 ### 飞书应用配置步骤
 
+手把手图文教程见 **[docs/feishu-setup.md](docs/feishu-setup.md)**。概要：
+
 1. [open.feishu.cn](https://open.feishu.cn) → 开发者后台 → 创建企业自建应用
 2. 「凭证与基础信息」复制 App ID / App Secret → 填入 `.env`
-3. 「权限管理」开通 `im:message`（获取与发送单聊/群组消息）
+3. 「权限管理」开通 `im:message` 等权限
 4. 「事件与回调」→ 订阅方式选【使用长连接接收事件】→ 添加事件 `im.message.receive_v1`
 5. 「版本管理与发布」→ 创建版本 → 发布（管理员扫码通过）
 6. 把 bot 拉进目标群，群 chat_id 填入 `FEISHU_TARGET_CHAT`
+
+Discord 配置教程见 [docs/discord-setup.md](docs/discord-setup.md)。
 
 ## 日常运行
 
