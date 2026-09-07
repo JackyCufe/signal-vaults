@@ -1,10 +1,12 @@
 # Signal Vaults
 
-**微信群 / 公众号 AI 知识日报** — 本地解密微信数据库 → LLM 提炼知识 → Discord/终端输出。
+**微信群 / 公众号 AI 知识日报** — 本地解密微信数据库 → LLM 提炼知识 → 飞书卡片 / Discord 推送。
 
 为 **AI Agent（Codex / Claude Code / 任何 CLI Agent）** 设计：单命令运行、环境变量配置、JSON 中间产物、零交互。
 
 > 解密与密钥提取基于 [wechat-cli-plus](https://github.com/maomao3334/wechat-cli-plus)（Apache-2.0），支持 **微信 4.1.x**，跨 **Windows / macOS / Linux** 三平台。本仓库在其上实现日报业务层。
+
+迭代历史见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -16,10 +18,15 @@
 | `signal-vaults groups [关键词]` | 列出群与会话（供 Agent 选择目标群） |
 | `signal-vaults daily [days] [群...]` | 群聊知识日报：分片 LLM 提炼 → 知识点 + 术语科普 + 资源链接，带缓存与重试 |
 | `signal-vaults mp [days]` | 公众号文章日报：抓取推送 → LLM 写推荐语 → 输出 |
-| `signal-vaults hn [days]` | Hacker News 日报：官方 API 拉取 → LLM 精选 → 推送（免费，无需 key） |
-| `signal-vaults reddit [days] [r/子版块...]` | Reddit 日报：Atom RSS 拉取 → LLM 精选 → 推送（需 REDDIT_PROXY/PUSH_PROXY） |
 
-输出默认写到 `work/know_*.txt`；配置了 Discord 环境变量则同时推送（含图片附件与 embed 卡片）。
+输出默认写到 `work/know_*.txt`；配置了飞书 / Discord 环境变量则同时推送。
+
+## 核心能力（v1.3）
+
+- **飞书卡片推送**：1.0 结构 interactive 卡片，格式定稿——首行群名+统计 → 编号知识点（标题/摘要/署名/📎原文引用块）→ 资源/链接区（纯可点击链接）。WebSocket 长连接 bot 支持群内 @bot 交互。
+- **原文溯源**（`SIG_VAULTS_TRACE=1`）：LLM 提炼时引用消息编号（refs），代码校验必须是本群真实存在的消息 ID，防编造；卡片内逐字展示被引用的消息原文（只显示 refs 指向的消息，不带邻居）。
+- **链接校验**：只放行聊天记录中真实出现过的域名；LLM 凭空编造的链接一律拦截且不出现在卡片里。
+- **群名解析**：卡片永不显示 chatroom ID，一律解析为群名称。
 
 ## 快速开始
 
@@ -36,105 +43,65 @@ pip install .
 
 # 3) 配置 LLM（任何 OpenAI 兼容端点）
 export LLM_API_KEY=sk-xxx
-export LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 智谱示例
-export LLM_MODEL=glm-4-flash
-
-# 4) 自检 + 运行
-signal-vaults doctor
-signal-vaults daily 1 "Agentic" "Data Go"     # 群名支持模糊匹配，先 signal-vaults groups 看列表
-signal-vaults mp 3                            # 公众号日报
-signal-vaults hn 1                            # Hacker News 日报
-signal-vaults reddit 1 LocalLLaMA programming # Reddit 日报（指定子版块）
-signal-vaults feishu                          # 飞书 Bot 守护（WS 长连接，群里发"日报"触发）
+export LLM_BASE_URL=https://api.deepseek.com        # 示例
+export LLM_MODEL=deepseek-chat
 ```
 
-## 环境变量
+## 配置（.env 或环境变量）
 
-| 变量 | 必填 | 说明 |
-|---|---|---|
-| `LLM_API_KEY` | ✅ | OpenAI 兼容 API Key |
-| `LLM_BASE_URL` | | 默认智谱 `https://open.bigmodel.cn/api/paas/v4`；DeepSeek: `https://api.deepseek.com/v1` |
-| `LLM_MODEL` | | 默认 `glm-4-flash` |
-| `LLM_PROXY` | | 可选代理 `http://127.0.0.1:7897` |
-| `SIGNAL_VAULTS_DB_DIR` | | 微信 `db_storage` 目录（默认自动检测） |
-| `SIGNAL_VAULTS_KEYS_FILE` | | 密钥文件（默认 `~/.wechat-cli/all_keys.json`） |
-| `SIGNAL_VAULTS_WORK_DIR` | | 工作目录（默认 `./work`） |
-| `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID` | | 配置后自动推送 Discord |
-| `PUSH_PROXY` | | Discord 推送代理（默认跟随 `LLM_PROXY`） |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | | 配置后启用飞书 Bot（WebSocket 长连接，可双向交互，与 Discord 可并存） |
-| `FEISHU_TARGET_CHAT` | | 指定接收日报的飞书群 chat_id（可选） |
-| `SIG_VAULTS_TOPIC` / `SIG_VAULTS_STYLE` | | 日报主题聚焦与摘要风格定制（对所有信息源生效） |
-| `REDDIT_PROXY` | | Reddit 拉取代理（缺省回落 `PUSH_PROXY`） |
+| 变量 | 说明 |
+|---|---|
+| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | LLM 必填（OpenAI 兼容端点） |
+| `LLM_BACKEND` | `auto`（默认）/ `api` / `codex`；auto 优先 API，无 key 时用 codex 登录态 |
+| `SIGNAL_VAULTS_KEYS_FILE` | 微信密钥文件路径（默认 `~/.wechat-cli/all_keys.json`） |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭证（WebSocket 长连接） |
+| `FEISHU_TARGET_CHAT` | 接收日报的群 chat_id（`oc_` 开头） |
+| `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID` | Discord 推送（可选） |
+| `PUSH_PROXY` | 推送代理（如 `http://127.0.0.1:7897`） |
+| `SIG_VAULTS_TRACE` | `1` 开启消息溯源（卡片附📎原文引用块） |
+| `SIG_VAULTS_TOPIC` / `SIG_VAULTS_STYLE` | 主题聚焦 / 语气风格定制 |
 
-> 📷 从零配置 Discord Bot（拿 Token、开 Intent、邀请进服、拿频道 ID）：见 **[docs/discord-setup.md](docs/discord-setup.md)** 手把手图文教程。
+### 飞书应用配置步骤
 
-## 平台兼容性
+1. [open.feishu.cn](https://open.feishu.cn) → 开发者后台 → 创建企业自建应用
+2. 「凭证与基础信息」复制 App ID / App Secret → 填入 `.env`
+3. 「权限管理」开通 `im:message`（获取与发送单聊/群组消息）
+4. 「事件与回调」→ 订阅方式选【使用长连接接收事件】→ 添加事件 `im.message.receive_v1`
+5. 「版本管理与发布」→ 创建版本 → 发布（管理员扫码通过）
+6. 把 bot 拉进目标群，群 chat_id 填入 `FEISHU_TARGET_CHAT`
 
-| 平台 | 密钥提取 (`wechat-cli init`) | 本工具 | 备注 |
-|---|---|---|---|
-| **Windows** | ✅ | ✅ | 微信 4.1.x Config.Cipher 扫描 |
-| **macOS** | ✅（需 sudo） | ✅ | 数据目录：`~/Library/Containers/com.tencent.xinWeChat/...` |
-| **Linux** | ✅（需 sudo） | ✅ | |
-
-跨平台差异（数据目录检测、路径分隔符、附件目录结构）由上游 `wechat-cli` 统一处理；本仓库只做业务层，无平台分支代码。
-
-## 🤖 Agent 启动提示词
-
-把下面这段直接发给 Codex / Claude Code 等 Agent，它就能从零跑通：
-
-```text
-任务：用 signal-vaults 生成本机微信群的知识日报。
-
-步骤：
-1. 环境自检：运行 `signal-vaults doctor`。任何 [!!] 项按提示修复：
-   - 缺数据目录 → 确认微信已在本机登录过，或设 SIGNAL_VAULTS_DB_DIR 指向 db_storage
-   - 缺密钥 → 运行 `wechat-cli init`（微信需登录状态；macOS/Linux 加 sudo）
-   - 缺 LLM_API_KEY → 向用户索要，或读取本地 .env 文件
-2. 选群：运行 `signal-vaults groups` 查看群列表（或 `signal-vaults groups 关键词` 模糊搜索）。
-3. 生成日报：`signal-vaults daily <天数> "<群名1>" "<群名2>"`；公众号用 `signal-vaults mp <天数>`。
-4. 结果在 work/know_*.txt（Markdown），已配置 Discord 则同时推送。
-5. 故障处理：
-   - LLM 超时 → 脚本自带 3 次重试；连续失败检查 LLM_BASE_URL/网络代理
-   - 首次运行慢属正常（分片 LLM 调用），结果分片缓存在 work/parts/，重跑秒级
-   - 解密报错 → 删 work/decrypted/ 重跑（会全量重解）
-不要做的：不要读取或上传 all_keys.json、不要修改 ~/.wechat-cli/、不要把聊天记录发给用户以外的服务。
-```
-
-## 安装为 Agent 技能（可选）
-
-仓库根目录自带 `SKILL.md`（Agent 可读的使用说明书）。默认**不注册**——想手动注册时按需复制：
+## 日常运行
 
 ```bash
-# Codex（注册为全局技能，任意目录可用）
-mkdir -p ~/.agents/skills && cp SKILL.md ~/.agents/skills/signal-vaults-SKILL.md
-
-# Claude Code
-mkdir -p ~/.claude/skills/signal-vaults && cp SKILL.md ~/.claude/skills/signal-vaults/SKILL.md
+signal-vaults daily 1 "群名"     # 群聊日报（近1天）
+signal-vaults mp 3               # 公众号日报（近3天）
+signal-vaults doctor             # 环境自检
+signal-vaults groups [关键词]    # 列出可选群
 ```
 
-不装技能也行：直接把上面的「Agent 启动提示词」粘给 Agent 即可，零安装。
+- 分片提炼结果缓存在 `work/parts/`，重跑只处理新增消息
+- 推送顺序：飞书卡片 → Discord；都未配置则仅输出本地文件
 
-## 架构
+## 公众号名单
 
-```
-signal_vaults/
-├── config.py     # 环境变量配置层（零硬编码、零敏感信息）
-├── llm.py        # OpenAI 兼容 /chat/completions（标准库实现，无 SDK 依赖）
-├── collector.py  # SQLCipher 解密(mtime增量) + 会话定位 + 消息/图片/文件/公众号提取
-├── daily.py      # 分片 LLM 提炼(≤1800字符/片+缓存+重试) + 合并去重 + Discord multipart 推送
-└── cli.py        # doctor / groups / daily / mp 四个子命令
-```
+公众号追踪名单维护于 `signal_vaults/daily.py` 的 `MP_LIST`（名称 + 抓取配置，文件内有格式注释）。
 
-## 性能与缓存
+## 交付自检（Agent 适用）
 
-- 解密：~120 MB/s，mtime 增量跳过（日常 <1s，全量 ~5s）
-- LLM：每片 ≤1800 字符（规避网关非流式超时），分片结果持久缓存于 `work/parts/`，**失败不缓存**（下次自动重试）
-- 日常增量运行 2~5 分钟；冷启动 6~8 分钟
+1. 输出为可读 Markdown
+2. 不出现 `gh_xxx` 等内部 ID
+3. 链接均为完整 URL 且来自聊天记录原文（域名必须在聊天中出现过）
 
-## 免责声明
+## 安全红线
 
-本项目仅用于处理**本人自己设备上**的微信数据（个人知识管理）。请勿用于监控他人、批量采集或任何违反微信使用条款的场景。密钥文件（`all_keys.json`）等同于聊天记录的访问凭证，切勿提交到版本库或分享给他人。
+- **禁止**读取、上传或展示 `all_keys.json`（等同于聊天记录访问凭证）
+- **禁止**修改 `~/.wechat-cli/` 目录
+- **禁止**要求用户在聊天中发送 token / API key；一切密钥只进本地 `.env`
+- **禁止**把聊天记录原文发送给用户以外的服务
+- 仅处理用户本人设备上的微信数据
 
-## License
+## 相关文档
 
-Apache-2.0（继承上游 [wechat-cli-plus](https://github.com/maomao3334/wechat-cli-plus)）
+- Discord 配置教程：`docs/discord-setup.md`
+- 配置模板：`.env.example`
+- 迭代历史：`CHANGELOG.md`

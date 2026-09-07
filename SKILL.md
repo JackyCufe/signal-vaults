@@ -1,11 +1,11 @@
 ---
 name: signal-vaults
-description: 安装、首次配置或运行 signal-vaults：从本机微信生成微信群和公众号 Markdown 知识日报，并可推送到 Discord。适用于用户要初始化日报、选择群聊、维护公众号名单或排查推送。
+description: 安装、首次配置或运行 signal-vaults：从本机微信生成微信群和公众号 AI 知识日报，推送飞书卡片和 Discord。适用于用户要初始化日报、选择群聊、维护公众号名单或排查推送。
 ---
 
 # Signal Vaults
 
-用本仓库的 `signal-vaults` CLI 从用户本机微信数据生成 Markdown 日报。
+用本仓库的 `signal-vaults` CLI 从用户本机微信数据生成 Markdown 知识日报（微信群聊 + 公众号），推送飞书卡片 / Discord。
 交互固定为**两轮**；实际运行分**三轮**（环境检测 → 采集生成 → 推送/交付）。
 日常运行（非首次）时，直接执行用户已确认过的命令，不再重复提问。
 
@@ -24,39 +24,36 @@ signal-vaults doctor # 只报告状态，不读取/显示密钥内容
 
 然后**在同一条消息里**发出以下 3 问 + 1 提示，逐字保持顺序：
 
-> 1️⃣ **推送方式**：日报你要推送到 Discord，还是仅保存到本地？
+> 1️⃣ **推送方式**：飞书卡片 / Discord / 仅保存到本地？
 > 2️⃣ **目标群聊**：请提供要生成日报的群聊名称（不确定名称可让我运行 `signal-vaults groups` 列出候选）。
 > 3️⃣ **目标公众号**：请提供要追踪的公众号名称（初始名单为空，名单存于 `signal_vaults/daily.py` 的 `MP_LIST`，用户报名称后你协助填入；格式见该文件内注释）。
 >
-> 💡 如果你想推送 Discord：请先检查项目根目录 `.env`（可从 `.env.example` 复制）中是否已填写 `DISCORD_BOT_TOKEN` 和 `DISCORD_CHANNEL_ID`。还没有的话，等我按你的回答给你配置教程。
+> 💡 飞书需要自建应用凭证（FEISHU_APP_ID/SECRET + FEISHU_TARGET_CHAT）；Discord 需要 bot token（DISCORD_BOT_TOKEN/CHANNEL_ID）。还没配置的话，等我按你的回答给你配置教程。
 
 用户作答后**如实记录**（推送偏好、群名、公众号名单），第一轮交互结束。
 不得在这轮里追问额外问题，不得代替用户做选择。
 
 ---
 
-## 第二轮交互：按用户回答走三分支
+## 第二轮交互：按用户回答走分支
 
 ### 分支 ①｜仅本地 + 两个来源齐全 → 直接开干
 
-- 不需要 Discord，且群聊/公众号名称都已给出。
+- 不需要推送，且群聊/公众号名称都已给出。
 - 直接执行第三轮（见下），产出 `work/know_*.txt`，报告文件路径即完成。
 
-### 分支 ②｜要 Discord 但没配置 → 先教学，后确认
+### 分支 ②｜要推送但没配置 → 先教学，后确认
 
-1. 输出配置教学：指向 `docs/discord-setup.md`（手把手图文教程），并附极简步骤概要：
-   - 开发者门户创建 Application → Bot 页复制 Token
-   - 开启 **Message Content Intent** → OAuth2 URL 邀请 bot 进服务器（勾 Send Messages）
-   - Discord 开发者模式下右键频道复制 Channel ID
-   - 写入本地 `.env` 的 `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID`（国内网络另配 `PUSH_PROXY`）
-2. **不要**让用户把 token 粘贴到聊天里；token 只进 `.env` 文件。
-3. 用户配置完成后，运行 `signal-vaults doctor` 确认显示 Discord 已配置。
-4. 回头二次确认：**"群聊 = X、公众号 = Y，是否确认开始生成？"** —— 用户确认后才进入第三轮。
+1. 输出配置教学：
+   - **飞书**：open.feishu.cn → 开发者后台 → 创建企业自建应用 → 复制 App ID/Secret → 权限开通 `im:message` → 事件订阅选【长连接】+ `im.message.receive_v1` → 发布版本 → bot 拉进群 → chat_id 填 `FEISHU_TARGET_CHAT`
+   - **Discord**：开发者门户创建 Application → Bot 页复制 Token → 开启 Message Content Intent → 邀请 bot 进服务器 → Channel ID 写入 `.env`
+2. **不要**让用户把任何 token 粘贴到聊天里；密钥只进本地 `.env`。
+3. 配置完成后运行 `signal-vaults doctor` 确认。
+4. 二次确认：**"群聊 = X、公众号 = Y，是否确认开始生成？"** —— 确认后才进入第三轮。
 
-### 分支 ③｜要 Discord 且已配置 → 直接开干 + 推送
+### 分支 ③｜已配置 → 直接开干 + 推送
 
-- `.env` 中 token/channel 齐全（doctor 确认通过）。
-- 直接执行第三轮，完成后必须核对推送日志 `-> Discord HTTP 200` 并向用户报告。
+- 直接执行第三轮，完成后核对日志：飞书 `-> 飞书推送 OK`、Discord `-> Discord HTTP 200`，向用户报告。
 
 ---
 
@@ -67,27 +64,25 @@ signal-vaults daily <天数> "<已确认的群名>"   # 群聊日报
 signal-vaults mp <天数>                        # 公众号日报
 ```
 
-- 结果文件：`work/know_*.txt`（Markdown）
+- 结果文件：`work/know_*.txt`（Markdown）；分片缓存 `work/parts/`
+- **飞书卡片格式（已定稿）**：首行群名+统计 → 编号知识点（加粗标题/摘要/署名/📎原文引用块）→ hr → 资源/链接区（纯可点击链接）
+- **溯源**：`SIG_VAULTS_TRACE=1` 时每条知识点附📎原文引用块（逐字原文，refs 经代码校验防编造）
+- **链接校验**：只放行聊天记录中真实出现过的域名；LLM 编造的链接被拦且不出现在卡片里
 - 交付前自检（三条都必须过）：
   1. 内容为可读 Markdown
-  2. 不出现 `gh_xxx` 等内部 ID
-  3. 链接均为完整 URL，且来自聊天记录原文
-- Discord 模式：确认日志出现 `-> Discord HTTP 200`；失败时按 `docs/discord-setup.md` 的常见问题表排查后重试一次。
-- 仅本地模式：向用户报告文件绝对路径即完成。
+  2. 不出现 `gh_xxx` 等内部 ID（群名一律解析，不显示 chatroom ID）
+  3. 链接均为完整 URL，且域名来自聊天记录原文
+- Discord 模式：确认日志出现 `-> Discord HTTP 200`
+- 仅本地模式：向用户报告文件绝对路径即完成
 
 ## 运行命令参考
 
 ```bash
 signal-vaults doctor
-signal-vaults groups
-signal-vaults groups 关键词
+signal-vaults groups [关键词]
 signal-vaults daily 2 "已确认的群名"
 signal-vaults mp 3
-signal-vaults hn 1                             # Hacker News 日报
-signal-vaults reddit 1 LocalLLaMA programming  # Reddit 日报
 ```
-
-外部信息源说明：`hn` 免费；`reddit` 走 Atom RSS，国内需代理（REDDIT_PROXY/PUSH_PROXY）。飞书推送：用户在 `.env` 配置 `FEISHU_WEBHOOK_URL`（群机器人 Webhook）后与 Discord 同时启用；获取方式见 README。
 
 `mp` 没有文章时输出"无文章"是正常结果。
 
@@ -99,7 +94,7 @@ signal-vaults reddit 1 LocalLLaMA programming  # Reddit 日报
 LLM_BACKEND=auto
 ```
 
-`auto` 会优先使用已配置的兼容 API；未提供 `LLM_API_KEY` 时，会使用本机 `codex login` 的登录态（前提是 Codex CLI 可用）。因此 Codex 路径不需要额外的 LLM API Key。若用户明确要求，可设置 `LLM_BACKEND=codex` 或 `LLM_BACKEND=api`。
+`auto` 会优先使用已配置的兼容 API；未提供 `LLM_API_KEY` 时，会使用本机 `codex login` 的登录态（前提是 Codex CLI 可用）。若用户明确要求，可设置 `LLM_BACKEND=codex` 或 `LLM_BACKEND=api`。
 
 ## 安全红线（任何分支都必须遵守）
 
@@ -111,5 +106,6 @@ LLM_BACKEND=auto
 
 ## 相关文档
 
-- Discord 配置手把手教程（含截图位与常见问题）：`docs/discord-setup.md`
 - 配置模板：`.env.example`
+- 迭代历史：`CHANGELOG.md`
+- Discord 配置教程：`docs/discord-setup.md`
