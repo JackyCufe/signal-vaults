@@ -154,8 +154,8 @@ def format_msgs_for_llm(msgs, limit_chars=45000, with_ids=False):
     return NL.join(lines)
 
 
-def collect_context(username, refs, radius=2):
-    """按消息编号取原文上下文: 每个ref取前radius条+自身+后radius条, 去重按时间排序。
+def collect_context(username, refs, radius=0):
+    """按消息编号取原文: 只取 refs 自身那几条(默认不扩展邻居), 逐字保留原文片段。
     返回 [(local_id, time_str, sender, text)]; 编号无效时只返回存在的。"""
     if not refs:
         return []
@@ -225,11 +225,14 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
                 r["url"] = u
                 exact = any(u == ru or u in ru or ru in u for ru in raw_urls)
                 if not exact:
+                    # 域名级兑底仅限微信文章卡片(xml 转义/截断造成同域形态差异);
+                    # 其他域名必须精确匹配, 严禁放行 LLM 自补的同域链接
                     try:
                         from urllib.parse import urlparse
                         udom = urlparse(u if u.startswith("http") else "https://" + u).netloc
-                        exact = udom and any(
-                            urlparse(ru).netloc == udom for ru in raw_urls if ru.startswith("http"))
+                        if udom in ("mp.weixin.qq.com",):
+                            exact = any(urlparse(ru).netloc == udom
+                                        for ru in raw_urls if ru.startswith("http"))
                     except Exception:
                         exact = False
                 if not exact:
