@@ -237,6 +237,22 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
                 if not udom or udom not in raw_doms:
                     print("    [链接校验] 丢弃未知域名 URL: {}".format(u[:60]))
                     r.pop("url", None)
+                else:
+                    # 域名已知时再验路径: 裸域名/无协议 URL 的路径必须在聊天原文出现过
+                    # (github.com/jiangmuran/vibepanel 这类 LLM 拼的仓库路径会被拦)
+                    try:
+                        upath = urlparse(u if u.startswith("http") else "https://" + u).path
+                    except Exception:
+                        upath = ""
+                    if upath and len(upath) > 1:
+                        from urllib.parse import urlparse as _up
+                        raw_paths = {_up(ru).path for ru in raw_urls if ru.startswith("http")}
+                        raw_blobs = " ".join(raw_urls)
+                        path_hit = upath in raw_paths or upath in raw_blobs
+                        # 域名级已知 + 路径无踪迹 -> 仅当路径过短(可能是首页/短链)时放行
+                        if not path_hit and len(upath) > 12:
+                            print("    [链接校验] 丢弃路径无出处 URL: {}{}".format(udom, upath[:50]))
+                            r.pop("url", None)
             rd.append(r)
     hot = kd
     # 溯源开关: 校验 refs 合法性 (必须是本群真实存在的 local_id, 防LLM编造)
@@ -316,8 +332,21 @@ def push_discord(digest, txt_path=None):
 
     embed_desc = ""
     for i, k in enumerate(digest["hot"][:6], 1):
-        embed_desc += "**{}. {}** — {}{}{}{}{}".format(
-            i, k.get("topic"), k.get("who", ""), NL, k.get("detail", ""), NL, NL)
+        embed_desc += "**{}. {}**{}{}{}".format(
+            i, k.get("topic"), NL, k.get("detail", ""), NL)
+        who = k.get("who", "")
+        if who:
+            embed_desc += "—— {}{}".format(who, NL)
+        # 溯源: 与飞书卡一致, refs 指向的聊天原文逐字引用
+        refs = k.get("refs")
+        if refs and m.get("raw_chat"):
+            ctx = collect_context(m["raw_chat"], refs)
+            if ctx:
+                embed_desc += "📎 原始上下文:" + NL
+                for _lid, ts, who2, txt in ctx:
+                    embed_desc += "> [{}] {}: {}{}".format(
+                        ts, who2, txt.replace(NL, " "), NL)
+        embed_desc += NL
     embed_desc = embed_desc[:3900] or "(无)"
 
     boundary = "----smd" + str(int(time.time()))
@@ -352,15 +381,15 @@ def push_discord(digest, txt_path=None):
     if digest.get("resources"):
         rdesc = ""
         for r in digest["resources"][:8]:
+            # 与飞书一致: 只显示带可点击 url 的条目(被拦的编造链接不出现)
             if isinstance(r, dict) and r.get("url"):
                 title = (r.get("title") or r.get("url"))[:80]
-                rdesc += "[{}]({}){}{}{}".format(
-                    title, r["url"], NL, (r.get("note") or "") + NL if r.get("note") else "", NL)
+                rdesc += "· [{}]({}){}".format(title, r["url"], NL)
         if rdesc:
             payload["embeds"].append({
                 "title": "资源/链接",
                 "description": rdesc[:3900],
-                "color": 0x57F287})
+                "color": 0x5865F2})
     body = ("--" + boundary + CRLF +
             'Content-Disposition: form-data; name="payload_json"' + CRLF + CRLF +
             json.dumps(payload, ensure_ascii=False) + CRLF).encode("utf-8")
