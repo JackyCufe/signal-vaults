@@ -196,7 +196,7 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
         u = m.get("url") or ""
         if u:
             # collector 里 url 存的是 xml 原文, 可能带 CDATA 后缀 "]]", 清理后入库
-            u = u.replace("]]", "").strip()
+            u = u.replace("]]", "").strip().replace("&amp;", "&")
             if u.startswith("http"):
                 raw_urls.add(u)
         blob = (m.get("raw") or "") + " " + (m.get("display") or "")
@@ -216,27 +216,26 @@ def merge_knowledge(username, parts, days, total, raw_msgs=None):
         key = (r.get("title", "") or r.get("url", "") or "")[:40]
         if key and key not in seen:
             seen.add(key)
-            # URL 白名单: 只保留聊天记录中真实出现过的; LLM 补编的一律丢弃 url (保留标题当纯文字)
-            # 注意: LLM 常逐字复制 xml 转义态(&amp;), 白名单两侧都要先还原成真实 URL 再比对
-            # 匹配策略: 逐字子串 -> 失败则域名级兑底 (分享卡片链接在 xml 里常被转义/截断)
+            # URL 校验: 只拦"聊天记录里从未出现过的域名"(LLM 编造的典型特征, 如 ai.google.dev);
+            # 域名在群里出现过就放行 (github/小红书等分享链接, LLM 可能省略协议或截断参数)
             if isinstance(r, dict) and r.get("url"):
                 u = r["url"].strip().replace("&amp;", "&")
                 r = dict(r)
                 r["url"] = u
-                exact = any(u == ru or u in ru or ru in u for ru in raw_urls)
-                if not exact:
-                    # 域名级兑底仅限微信文章卡片(xml 转义/截断造成同域形态差异);
-                    # 其他域名必须精确匹配, 严禁放行 LLM 自补的同域链接
-                    try:
-                        from urllib.parse import urlparse
-                        udom = urlparse(u if u.startswith("http") else "https://" + u).netloc
-                        if udom in ("mp.weixin.qq.com",):
-                            exact = any(urlparse(ru).netloc == udom
-                                        for ru in raw_urls if ru.startswith("http"))
-                    except Exception:
-                        exact = False
-                if not exact:
-                    print("    [链接校验] 丢弃非聊天记录来源 URL: {}".format(u[:60]))
+                try:
+                    from urllib.parse import urlparse
+                    udom = urlparse(u if u.startswith("http") else "https://" + u).netloc
+                except Exception:
+                    udom = ""
+                raw_doms = set()
+                for ru in raw_urls:
+                    if ru.startswith("http"):
+                        try:
+                            raw_doms.add(urlparse(ru).netloc)
+                        except Exception:
+                            pass
+                if not udom or udom not in raw_doms:
+                    print("    [链接校验] 丢弃未知域名 URL: {}".format(u[:60]))
                     r.pop("url", None)
             rd.append(r)
     hot = kd
