@@ -7,7 +7,7 @@ packages = ["signal_vaults"]
 
 [project]
 name = "signal-vaults"
-version = "0.1.0"
+version = "1.0.0"
 description = "WeChat group & official-account knowledge digest — local SQLCipher decrypt + LLM summarize, agent-friendly (Windows/macOS/Linux)"
 readme = "README.md"
 requires-python = ">=3.10"
